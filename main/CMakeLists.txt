@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "board.c"
+        "epd_ssd1680.c"
+        "display_ui.c"
+        "ble_scanner.c"
+        "govee_decode.c"
+        "assets/icons.c"
+    INCLUDE_DIRS
+        "."
+        "assets"
+    REQUIRES
+        driver
+        bt
+        nvs_flash
+        esp_timer
+        lvgl
+)

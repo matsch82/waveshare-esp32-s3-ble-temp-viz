@@ -1,0 +1,25 @@
+# Build artifacts
+build/
+*.bin
+*.elf
+*.map
+*.ld
+
+# Generated ESP-IDF config files
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults.orig
+
+# Dependency/component cache
+dependencies.lock
+managed_components/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
