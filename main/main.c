@@ -13,7 +13,7 @@
 
 #define TAG "main"
 
-#define DEBUG_NO_SLEEP         0
+#define DEBUG_NO_SLEEP         1
 
 #define SLEEP_SECONDS          60
 #define BLE_SCAN_TIMEOUT_MS    10000
