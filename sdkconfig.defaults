@@ -3,6 +3,8 @@ CONFIG_IDF_TARGET="esp32s3"
 
 # Flash: 4 MB layout boots on both board revisions (V1: 4 MB, V2: 8 MB).
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # PSRAM intentionally disabled: the app needs only a few KB of graphics RAM,
 # and disabling it keeps one firmware compatible with V1 (quad) and V2 (octal).
 

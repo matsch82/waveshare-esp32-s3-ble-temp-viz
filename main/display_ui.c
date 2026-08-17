@@ -50,8 +50,17 @@ static void fb_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
             uint8_t b8 = (b << 3) | (b >> 2);
             uint8_t luma = (uint8_t)((r8 * 299 + g8 * 587 + b8 * 114) / 1000);
             bool black = luma < 128;
-            uint32_t byte_idx = (py * EPD_WIDTH + px) / 8;
-            uint8_t bit_mask = 0x80 >> (px % 8);
+
+            /* lv_display_set_rotation() only swaps the reported resolution;
+               it does not rotate pixel data. Since the panel is square we
+               rotate manually here: mapping each logical (px, py) pixel to
+               its physical position after a 90 degree counter-clockwise
+               ("to the left") turn. */
+            int32_t dst_x = py;
+            int32_t dst_y = (EPD_WIDTH - 1) - px;
+
+            uint32_t byte_idx = (dst_y * EPD_WIDTH + dst_x) / 8;
+            uint8_t bit_mask = 0x80 >> (dst_x % 8);
             if (black) {
                 s_fb[byte_idx] &= ~bit_mask; // black = 0 (panel expects 0=Black, 1=White)
             } else {
@@ -98,6 +107,9 @@ bool display_ui_create_layout(void)
     lv_display_set_buffers(s_disp, s_draw_buf, NULL,
                            EPD_WIDTH * EPD_HEIGHT * 2,
                            LV_DISPLAY_RENDER_MODE_FULL);
+    /* Rotation is handled manually in fb_flush() since lv_display_set_rotation()
+       does not actually rotate pixel data in LVGL 9 (it only swaps the
+       reported resolution). Widget layout coordinates below are unaffected. */
 
     /* LVGL needs a periodic tick source. */
     const esp_timer_create_args_t tick_timer_args = {
@@ -178,7 +190,7 @@ const uint8_t *display_ui_get_fb(void)
     return s_fb;
 }
 
-void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool partial)
+void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool partial, uint32_t adv_count)
 {
     char buf[64];
 
@@ -202,12 +214,11 @@ void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool pa
     lv_label_set_text(s_batt_label, buf);
     lv_label_set_text_fmt(s_rssi_label, "%d", reading->rssi);
 
-    uint32_t uptime = xTaskGetTickCount() / configTICK_RATE_HZ;
-    lv_snprintf(buf, sizeof(buf), "#%d  %lus", reading->seq, uptime);
+    lv_snprintf(buf, sizeof(buf), "%lu ads", (unsigned long)adv_count);
     lv_label_set_text(s_footer_label, buf);
 
     lv_task_handler();
     epd_refresh_fb(s_fb, prev_fb, partial);
-    ESP_LOGI(TAG, "screen updated: %.2f C / %.1f %% / %d%% batt (partial=%d)",
-             reading->temp_c, reading->humidity, reading->battery, partial);
+    ESP_LOGI(TAG, "screen updated: %.2f C / %.1f %% / %d%% batt (partial=%d) footer='%s'",
+             reading->temp_c, reading->humidity, reading->battery, partial, buf);
 }

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,7 @@ typedef struct {
     int   battery;       // percent (0..100) or -1 if unknown
     int   rssi;          // dBm
     int   seq;           // packet counter for UI
+    time_t timestamp;    // wall-clock time the advertisement was received
     char  codec[16];     // decoder tag, e.g. "packed@2"
     char  mfr_hex[65];   // raw manufacturer data as hex string (for logging)
 } reading_t;

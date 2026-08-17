@@ -15,11 +15,12 @@ bool display_ui_create_layout(void);
 /**
  * Render a sensor reading to the framebuffer and refresh the e-paper panel.
  *
- * @param reading  sensor reading to display
- * @param prev_fb  previous framebuffer image (used as baseline for partial refresh)
- * @param partial  true = partial refresh, false = full refresh
+ * @param reading    sensor reading to display
+ * @param prev_fb    previous framebuffer image (used as baseline for partial refresh)
+ * @param partial    true = partial refresh, false = full refresh
+ * @param adv_count  number of BLE advertisements received so far
  */
-void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool partial);
+void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool partial, uint32_t adv_count);
 
 /**
  * Return the 1bpp framebuffer so the caller can save it across deep sleep.

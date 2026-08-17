@@ -9,6 +9,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <time.h>
 
 #define TAG "ble"
 
@@ -23,6 +24,7 @@ static uint8_t s_pending_mfr_len = 0;
 static SemaphoreHandle_t s_found_sem = NULL;
 static reading_t s_reading = {0};
 static bool s_found = false;
+static uint32_t s_adv_count = 0;
 
 static bool name_matches_prefix(const char *name)
 {
@@ -55,6 +57,7 @@ static void decode_and_store(uint16_t company, const uint8_t *mfr_payload, uint8
 
     r.rssi = rssi;
     r.seq = ++s_seq;
+    r.timestamp = time(NULL);
     s_reading = r;
     s_found = true;
 
@@ -81,6 +84,7 @@ static int event_cb(struct ble_gap_event *event, void *arg)
         const struct ble_gap_disc_desc *disc = &event->disc;
         uint8_t adv_len = disc->length_data > 31 ? 31 : disc->length_data;
         if (adv_len == 0) break;
+        s_adv_count++;
 
         const uint8_t *data = disc->data;
         const uint8_t *end = data + adv_len;
@@ -244,4 +248,9 @@ void ble_scanner_stop(void)
         s_found_sem = NULL;
     }
     nimble_port_deinit();
+}
+
+uint32_t ble_scanner_adv_count(void)
+{
+    return s_adv_count;
 }

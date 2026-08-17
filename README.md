@@ -1,30 +1,47 @@
 # ESP32-S3 e-Paper BLE Temperature Display
 
-This project displays temperature, humidity, and battery level from the
-Govee H5179 BLE sensor named `GV5179_3802` (the "Außenthermometer") on a
-Waveshare **ESP32-S3-ePaper-1.54** board. It listens passively to BLE
-advertisements (no pairing) and updates the e-paper display on every
-received advertisement.
+Firmware for the Waveshare **ESP32-S3-ePaper-1.54** that shows temperature,
+humidity, battery, and RSSI from a nearby Govee BLE thermometer. It also
+prints a running count of all received BLE advertisements in the footer.
+
+The device stays awake. Deep sleep and Wi-Fi were removed: deep sleep left
+the e-paper unusable, and Wi-Fi/WPS/NTP is no longer part of this firmware.
+
+## Current behavior
+
+1. Power on the e-paper and start a NimBLE active scan.
+2. Wait up to 10 seconds for one advertisement from a device whose name
+   contains `GV5171` (default: `GV5171385C`).
+3. Decode temperature / humidity / battery from the Govee manufacturer data.
+4. Refresh the 200x200 panel (full refresh on cycle 0 and every 15 cycles,
+   partial refresh otherwise).
+5. Pause 5 seconds and repeat. Last known values are kept if no new packet
+   arrives.
+
+The UI is rotated 90 degrees counter-clockwise in software. The footer shows
+`<n> ads`, the total number of BLE advertisements seen since boot (not just
+the Govee sensor).
+
+The previous-frame buffer lives in static RAM, not on the main task stack.
+A 5 kB stack-local copy overflowed the 8 kB main task and rebooted the
+chip before any refresh could run.
 
 ## Hardware
 
-- Board: Waveshare ESP32-S3-ePaper-1.54 (V1 or V2)
-- Panel: 200×200 black/white E-Paper (SSD1680 controller)
-- Sensor: Govee H5179, advertised name `GV5179_3802` (or any name starting
-  with `GV5179` as configured in `main/Kconfig.projbuild`)
+- Board: Waveshare ESP32-S3-ePaper-1.54 (this unit is **V2**)
+- Panel: 200x200 black/white e-paper (GDEY0154D67 / SSD1680)
+- Sensor: Govee thermometer advertised as `GV5171385C` (prefix `GV5171`)
 
-No wiring is required — the e-paper is connected to the board internally:
+No extra wiring is required. On-board connections:
 
-| Signal | GPIO |
-|--------|------|
-| EPD BUSY  | 8    |
-| EPD RST   | 9    |
-| EPD DC    | 10   |
-| EPD CS    | 11   |
-| EPD SCLK  | 12   |
-| EPD MOSI  | 13   |
-| EPD PWR   | 6    |
-| PWR latch | 17   |
+- EPD BUSY: GPIO 8
+- EPD RST: GPIO 9
+- EPD DC: GPIO 10
+- EPD CS: GPIO 11
+- EPD SCLK: GPIO 12
+- EPD MOSI: GPIO 13
+- EPD PWR (active low on V2): GPIO 6
+- VBAT latch (active high): GPIO 17
 
 ## Project layout
 
@@ -32,15 +49,15 @@ No wiring is required — the e-paper is connected to the board internally:
 epaper-display/
 ├── CMakeLists.txt
 ├── sdkconfig.defaults
-├── partitions.csv
+├── partitions.csv              # 3 MB factory app partition
 ├── main/
-│   ├── main.c                  # app_main
+│   ├── main.c                  # always-on scan / render loop
 │   ├── board.c/.h              # GPIO + SPI2
 │   ├── epd_ssd1680.c/.h        # e-paper driver
 │   ├── display_ui.c/.h         # LVGL 9 UI + 1bpp framebuffer
-│   ├── ble_scanner.c/.h        # NimBLE passive observer
-│   ├── govee_decode.c/.h       # Govee H5179 advertisement decoder
-│   ├── assets/                 # generated icons
+│   ├── ble_scanner.c/.h        # NimBLE one-shot scan + ad counter
+│   ├── govee_decode.c/.h       # Govee advertisement decoder
+│   ├── assets/                 # 1-bit icons
 │   └── Kconfig.projbuild
 ├── scripts/
 │   ├── setup.sh
@@ -55,8 +72,8 @@ epaper-display/
 
 ## Setup
 
-The firmware needs **ESP-IDF v5.5.2** or newer. The project provides a script
-that installs it to `~/esp/esp-idf` if missing.
+Needs **ESP-IDF v5.5.2** or newer. The setup script installs it to
+`~/esp/esp-idf` if missing.
 
 ```bash
 ./scripts/setup.sh          # one-time, ~1 GB download
@@ -68,59 +85,62 @@ that installs it to `~/esp/esp-idf` if missing.
 ./scripts/build.sh
 ```
 
-This sources the ESP-IDF environment, sets the target to `esp32s3`, and
-builds the firmware.
+Or, with the ESP-IDF environment already sourced:
+
+```bash
+idf.py build
+```
 
 ## Flash and monitor
 
-Plug the board via USB-C. Hold the **BOOT** button while pressing the **PWR**
-button if the device is not detected.
+Plug the board in with USB-C. If it is not detected, hold **BOOT** while
+pressing **PWR**.
 
 ```bash
 ./scripts/flash.sh          # auto-detects port and flashes
-./scripts/flash.sh monitor  # flash and then open the serial monitor
+./scripts/flash.sh monitor  # flash, then open the serial monitor
 ./scripts/monitor.sh        # serial monitor only
 ```
 
-To force a specific port:
+To force a port:
 
 ```bash
 ./scripts/flash.sh /dev/cu.usbmodemXXXX
+idf.py -p /dev/cu.usbmodemXXXX flash
+```
+
+On a successful cycle the log looks like:
+
+```
+I (...) main: starting BLE scanner (cycle 4)
+I (...) ble: target sensor found: GV5171385C
+I (...) ui: screen updated: 24.84 C / 41.8 % / 81% batt (partial=1) footer='343 ads'
 ```
 
 ## Host testing
 
-The Govee decoder can be tested without the ESP toolchain by compiling and
-running the unit test on the host. It uses the real advertisement frames from
-`../tempsensor/test.csv`.
+The Govee decoder can be tested on the host without the ESP toolchain:
 
 ```bash
 ./scripts/test_govee.sh
 ```
 
-## Regenerate icons
+## Configuration
 
-Icons are 1-bit images generated by a Python script using PIL and committed
-to `main/assets/`. If you want to change them, run:
+See `main/Kconfig.projbuild` and `sdkconfig.defaults`:
 
-```bash
-python3 scripts/gen_icons.py
-```
-
-## Display update policy
-
-The first update after boot is a **full refresh** to establish a clean image.
-Subsequent updates use the panel's **partial refresh** mode for speed. After
-`APP_FULL_REFRESH_EVERY` partial updates (default 30) a full refresh is
-performed to clear ghosting.
+- `CONFIG_APP_SENSOR_NAME_PREFIX` — default `GV5171`
+- `CONFIG_APP_FULL_REFRESH_EVERY` — default `15`
+- `CONFIG_ESP_MAIN_TASK_STACK_SIZE` — `8192` (do not put the previous
+  framebuffer on this stack)
+- Custom partition table `partitions.csv` (3 MB factory app)
 
 ## Firmware compatibility
 
-PSRAM is intentionally disabled and the flash layout is 4 MB, so the same
-binary works on both V1 (4 MB flash + 2 MB quad PSRAM) and V2 (8 MB flash +
-8 MB octal PSRAM) board revisions.
+PSRAM is disabled and the image header is 4 MB, so the same binary works
+on V1 (4 MB flash + 2 MB quad PSRAM) and V2 (8 MB flash + 8 MB octal PSRAM).
 
 ## License
 
-MIT. Includes no external code except the ESP-IDF/LVGL components fetched at
+MIT. External code is limited to ESP-IDF / LVGL components fetched at
 build time.

@@ -31,6 +31,9 @@ bool ble_scanner_get_one_reading(reading_t *out, uint32_t timeout_ms);
  */
 void ble_scanner_stop(void);
 
+/** Total BLE advertisements received since boot. */
+uint32_t ble_scanner_adv_count(void);
+
 #ifdef __cplusplus
 }
 #endif
