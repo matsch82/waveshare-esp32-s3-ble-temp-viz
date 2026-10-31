@@ -17,6 +17,10 @@ extern "C" {
 #define BOARD_EPD_PWR_EN_GPIO 6
 #define BOARD_PWR_LATCH_GPIO 17
 
+/* BOOT button (active low). Only a strapping pin at reset, free at runtime.
+   The PWR button is not used: holding it switches the board off. */
+#define BOARD_BOOT_BUTTON_GPIO 0
+
 /* Panel geometry */
 #define BOARD_EPD_WIDTH  200
 #define BOARD_EPD_HEIGHT 200

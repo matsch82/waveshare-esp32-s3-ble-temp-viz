@@ -27,8 +27,11 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=0
 # FreeRTOS -------------------------------------------------------------------
 CONFIG_FREERTOS_HZ=1000
 
-# LVGL fonts used by the UI --------------------------------------------------
+# LVGL fonts used by the UI (the 72 px digits are in main/assets) -----------
+CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 

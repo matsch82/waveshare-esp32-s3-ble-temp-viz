@@ -2,11 +2,13 @@ idf_component_register(
     SRCS
         "main.c"
         "board.c"
+        "button.c"
         "epd_ssd1680.c"
         "display_ui.c"
         "ble_scanner.c"
         "govee_decode.c"
-        "assets/icons.c"
+        "history.c"
+        "assets/font_digits_72.c"
     INCLUDE_DIRS
         "."
         "assets"
