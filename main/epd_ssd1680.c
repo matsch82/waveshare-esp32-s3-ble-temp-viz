@@ -93,9 +93,18 @@ static void spi_data_byte(uint8_t b)
     spi_data(&b, 1);
 }
 
+/* A full refresh takes ~2-3 s; give up well after that instead of hanging
+   forever on a stuck BUSY line. */
+#define EPD_BUSY_TIMEOUT_MS 10000
+
 static void epd_wait_idle(void)
 {
+    TickType_t start = xTaskGetTickCount();
     while (board_epd_busy_level() == 1) {
+        if (xTaskGetTickCount() - start > pdMS_TO_TICKS(EPD_BUSY_TIMEOUT_MS)) {
+            ESP_LOGE(TAG, "BUSY still high after %d ms, continuing", EPD_BUSY_TIMEOUT_MS);
+            return;
+        }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

@@ -17,9 +17,13 @@ static int s_seq = 0;
 
 static const char *s_prefix = CONFIG_APP_SENSOR_NAME_PREFIX;
 
+/* The name arrives in the scan response and the mfr data in the advertisement,
+   so both are tied together by the advertiser's address. */
 static char s_target_name[32] = {0};
+static ble_addr_t s_target_addr;
 static uint8_t s_pending_mfr[32] = {0};
 static uint8_t s_pending_mfr_len = 0;
+static ble_addr_t s_pending_addr;
 
 static SemaphoreHandle_t s_found_sem = NULL;
 static reading_t s_reading = {0};
@@ -72,6 +76,10 @@ static void decode_and_store(uint16_t company, const uint8_t *mfr_payload, uint8
 static void try_decode_pending_mfr(int rssi)
 {
     if (s_target_name[0] == '\0' || s_pending_mfr_len < 2) return;
+    if (ble_addr_cmp(&s_pending_addr, &s_target_addr) != 0) {
+        s_pending_mfr_len = 0;
+        return;
+    }
     uint16_t company = s_pending_mfr[0] | (s_pending_mfr[1] << 8);
     decode_and_store(company, s_pending_mfr + 2, s_pending_mfr_len - 2, rssi, s_target_name);
     s_pending_mfr_len = 0;
@@ -133,16 +141,19 @@ static int event_cb(struct ble_gap_event *event, void *arg)
                      adv_name[0] ? adv_name : "-");
         }
 
-        if (adv_name[0] != '\0' && name_matches_prefix(adv_name)) {
+        if (s_target_name[0] == '\0' && adv_name[0] != '\0' && name_matches_prefix(adv_name)) {
             strncpy(s_target_name, adv_name, sizeof(s_target_name) - 1);
             s_target_name[sizeof(s_target_name) - 1] = '\0';
+            s_target_addr = disc->addr;
             ESP_LOGI(TAG, "target sensor found: %s", s_target_name);
             try_decode_pending_mfr(disc->rssi);
         }
 
         if (got_mfr) {
             if (s_target_name[0] != '\0') {
-                decode_and_store(mfr_company, mfr_payload, mfr_payload_len, disc->rssi, s_target_name);
+                if (ble_addr_cmp(&disc->addr, &s_target_addr) == 0) {
+                    decode_and_store(mfr_company, mfr_payload, mfr_payload_len, disc->rssi, s_target_name);
+                }
             } else if (!s_found) {
                 /* Save mfr data until we know the name of the target sensor. */
                 uint8_t full_len = mfr_payload_len + 2;
@@ -151,6 +162,7 @@ static int event_cb(struct ble_gap_event *event, void *arg)
                     s_pending_mfr[1] = (mfr_company >> 8) & 0xFF;
                     memcpy(s_pending_mfr + 2, mfr_payload, mfr_payload_len);
                     s_pending_mfr_len = full_len;
+                    s_pending_addr = disc->addr;
                 }
             }
         }

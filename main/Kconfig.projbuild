@@ -4,16 +4,16 @@ menu "E-paper display application"
         string "BLE advertised-name prefix of the Govee sensor"
         default "GV5171"
         help
-            The sensor advertises as e.g. H5171_1234 (see
-            tempsensor/README.md). The scanner matches on this prefix.
+            The sensor advertises as e.g. GV5171385C. The scanner does a
+            case-insensitive substring match on this value.
 
     config APP_FULL_REFRESH_EVERY
-        int "Full e-paper refresh every N wake cycles"
+        int "Full e-paper refresh every N display cycles"
         default 15
+        range 1 1000
         help
-            The device wakes every 60 seconds. This setting says how many
-            wakes pass between full e-paper refreshes. Partial refreshes are
-            used on all other wakes to reduce power and flicker. The first
-            refresh after boot is always a full one.
+            Number of scan/display cycles between full e-paper refreshes.
+            Partial refreshes are used on all other cycles to reduce
+            flicker. The first refresh after boot is always a full one.
 
 endmenu

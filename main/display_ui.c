@@ -194,30 +194,41 @@ void display_ui_render(const reading_t *reading, const uint8_t *prev_fb, bool pa
 {
     char buf[64];
 
-    /* LVGL's built-in formatter does not support %f by default; format
-       temperature and humidity manually as fixed-point strings. */
-    int t = (int)(reading->temp_c * 10.0f +
-                  (reading->temp_c >= 0 ? 0.5f : -0.5f));
-    int t_whole = t / 10;
-    int t_frac = t % 10;
-    if (t_frac < 0) t_frac = -t_frac;
-    lv_snprintf(buf, sizeof(buf), "%d.%d°", t_whole, t_frac);
-    lv_label_set_text(s_temp_label, buf);
+    /* seq is set by the scanner on every decoded packet, so 0 means no
+       reading has been received since boot: keep the placeholders. */
+    if (reading->seq > 0) {
+        /* LVGL's built-in formatter does not support %f by default; format
+           temperature and humidity manually as fixed-point strings. */
+        int t = (int)(reading->temp_c * 10.0f +
+                      (reading->temp_c >= 0 ? 0.5f : -0.5f));
+        int t_whole = t / 10;
+        int t_frac = t % 10;
+        if (t_frac < 0) t_frac = -t_frac;
+        lv_snprintf(buf, sizeof(buf), "%s%d.%d°",
+                    (t < 0 && t_whole == 0) ? "-" : "", t_whole, t_frac);
+        lv_label_set_text(s_temp_label, buf);
 
-    int h = (int)(reading->humidity * 10.0f + 0.5f);
-    int h_whole = h / 10;
-    int h_frac = h % 10;
-    lv_snprintf(buf, sizeof(buf), "%d.%d%%", h_whole, h_frac);
-    lv_label_set_text(s_hum_label, buf);
+        int h = (int)(reading->humidity * 10.0f + 0.5f);
+        int h_whole = h / 10;
+        int h_frac = h % 10;
+        lv_snprintf(buf, sizeof(buf), "%d.%d%%", h_whole, h_frac);
+        lv_label_set_text(s_hum_label, buf);
 
-    lv_snprintf(buf, sizeof(buf), "%d%%", reading->battery >= 0 ? reading->battery : 0);
-    lv_label_set_text(s_batt_label, buf);
-    lv_label_set_text_fmt(s_rssi_label, "%d", reading->rssi);
+        lv_label_set_text_fmt(s_rssi_label, "%d", reading->rssi);
+    }
+
+    if (reading->battery >= 0) {
+        lv_label_set_text_fmt(s_batt_label, "%d%%", reading->battery);
+    } else {
+        lv_label_set_text(s_batt_label, "--%");
+    }
 
     lv_snprintf(buf, sizeof(buf), "%lu ads", (unsigned long)adv_count);
     lv_label_set_text(s_footer_label, buf);
 
-    lv_task_handler();
+    /* Render synchronously: lv_task_handler() only redraws when LVGL's
+       refresh timer is due, which would leave s_fb stale. */
+    lv_refr_now(s_disp);
     epd_refresh_fb(s_fb, prev_fb, partial);
     ESP_LOGI(TAG, "screen updated: %.2f C / %.1f %% / %d%% batt (partial=%d) footer='%s'",
              reading->temp_c, reading->humidity, reading->battery, partial, buf);
