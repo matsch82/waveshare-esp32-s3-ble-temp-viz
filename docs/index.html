@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>e-Paper BLE Thermometer</title>
-<meta name="description" content="Open-source ESP-IDF firmware that turns the Waveshare ESP32-S3-ePaper-1.54 into a battery-powered e-paper display for a Govee BLE thermometer, with a real-time clock, a 24 h trend and an hourly SD card log.">
+<meta name="description" content="Open-source ESP-IDF firmware that turns the Waveshare ESP32-S3-ePaper-1.54 into a battery-powered e-paper display for a Govee BLE thermometer, with a 24 h trend, the indoor temperature and an hourly SD card log. Written by AI coding agents as an experiment in embedded IoT.">
 <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
 <meta property="og:title" content="e-Paper BLE Thermometer">
-<meta property="og:description" content="A Govee BLE thermometer on a 200x200 e-paper display: wakes for a couple of seconds each minute, sleeps for the rest.">
+<meta property="og:description" content="A Govee BLE thermometer on a 200x200 e-paper display: wakes every five minutes for a second or two, sleeps for the rest. Written by AI coding agents.">
 <meta property="og:image" content="https://matsch82.github.io/waveshare-esp32-s3-ble-temp-viz/images/hero.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='6' fill='%23222224'/%3E%3Crect x='6' y='6' width='20' height='18' rx='1.5' fill='%23ecebe3'/%3E%3Cpath d='M8 19l4-5 3 3 4-6 3 4' fill='none' stroke='%23222224' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
@@ -56,7 +56,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .skip { position: absolute; left: 12px; top: -60px; z-index: 20; background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; }
 .skip:focus { top: 12px; }
 .eyebrow { font-size: 0.8rem; font-weight: 650; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
-.lede { color: var(--muted); font-size: 1.12rem; max-width: 62ch; margin-top: 16px; }
+.lede { color: var(--muted); font-size: 1.12rem; max-width: 62ch; margin-top: 16px; text-wrap: pretty; }
 .muted { color: var(--muted); }
 .small { font-size: 0.9rem; }
 
@@ -91,7 +91,14 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .hero h1 { font-size: clamp(2.4rem, 1.4rem + 4.6vw, 4.4rem); letter-spacing: -0.035em; line-height: 1.02; max-width: 18ch; margin: 0 auto; }
 .hero .lede { margin: 22px auto 0; font-size: clamp(1.05rem, 1rem + 0.4vw, 1.25rem); }
 .hero .actions { justify-content: center; margin-top: 32px; }
-.hero-art { margin: 48px auto 0; max-width: 1040px; background: var(--glow); }
+.ai-note { display: flex; gap: 14px; align-items: flex-start; max-width: 660px; margin: 36px auto 0; padding: 14px 18px 14px 14px;
+    text-align: left; font-size: 0.95rem; line-height: 1.5; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.ai-note p { margin: 0; }
+.ai-note b { color: var(--ink); font-weight: 650; }
+.ai-note .icon { width: 36px; height: 36px; border-radius: 10px; margin: 1px 0 0; flex: none; }
+.ai-note .icon svg { width: 19px; height: 19px; }
+.hero-art { margin: 40px auto 0; max-width: 1040px; background: var(--glow); }
 .hero-art img, .device img { filter: var(--device-filter); }
 @media (max-width: 599px) {
     .hero-art { margin-inline: calc(-1 * var(--gutter)); overflow: hidden; }
@@ -137,13 +144,22 @@ section { padding: 72px 0; }
 .note { margin-top: 28px; font-size: 0.9rem; color: var(--muted); }
 
 /* How it works */
-.minute { margin: 0 0 56px; }
+.cycle { margin: 0 0 56px; }
+/* To scale: 300 s wide, awake from 3 s for about 1.5 s (1% / 0.5%). */
+.pin { position: relative; height: 30px; }
+.pin span { position: absolute; left: 1%; bottom: 0; padding: 0 0 8px 8px; border-left: 2px solid var(--accent);
+    font: 600 0.78rem/1.2 var(--mono); color: var(--accent); white-space: nowrap; }
 .bar { position: relative; height: 44px; border: 1.5px solid var(--ink); border-radius: 10px; overflow: hidden;
-    background: var(--surface) repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--line) calc(25% - 1px) 25%); }
-.bar .awake { position: absolute; left: 5%; width: 4.5%; top: 0; bottom: 0; background: var(--accent); }
-.bar .sleep { position: absolute; left: 9.5%; right: 0; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+    background: var(--surface) repeating-linear-gradient(90deg, transparent 0 calc(20% - 1px), var(--line) calc(20% - 1px) 20%); }
+.bar .awake { position: absolute; left: 1%; width: max(2px, 0.5%); top: 0; bottom: 0; background: var(--accent); }
+.bar .sleep { position: absolute; left: 1.5%; right: 0; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
 .bar .sleep span { background: var(--surface); padding: 0 10px; font-size: 0.88rem; color: var(--muted); white-space: nowrap; }
-.ticks { display: flex; justify-content: space-between; font: 0.78rem var(--mono); color: var(--muted); margin-top: 8px; }
+.ticks { position: relative; height: 1.4em; font: 0.78rem/1.4 var(--mono); color: var(--muted); margin-top: 8px; }
+.ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.ticks span:nth-child(1) { left: 0; transform: none; }
+.ticks span:nth-child(2) { left: 20%; } .ticks span:nth-child(3) { left: 40%; }
+.ticks span:nth-child(4) { left: 60%; } .ticks span:nth-child(5) { left: 80%; }
+.ticks span:nth-child(6) { left: 100%; transform: translateX(-100%); }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; font-size: 0.92rem; color: var(--muted); }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--accent); }
 .legend i.off { background: transparent; border: 1.5px solid var(--ink); }
@@ -165,6 +181,13 @@ section { padding: 72px 0; }
 .stack li + li { margin-top: 6px; }
 .callout { border-left: 4px solid var(--accent); }
 .callout b { font-size: 1.6rem; letter-spacing: -0.02em; display: block; }
+.power { display: grid; gap: 16px; margin-top: 48px; }
+@media (min-width: 900px) { .power { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); } }
+.power .card p { margin: 10px 0 0; color: var(--muted); font-size: 0.95rem; }
+.power .callout b { margin-top: 10px; font-size: clamp(1.6rem, 1.3rem + 1vw, 2rem); font-variant-numeric: tabular-nums; }
+.power .callout b + span { color: var(--muted); font-size: 0.95rem; }
+.power ul { margin: 12px 0 0; padding-left: 1.1em; color: var(--muted); font-size: 0.95rem; }
+.power li + li { margin-top: 6px; }
 pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 16px 18px; overflow-x: auto;
     line-height: 1.55; font-size: 0.84rem; -webkit-overflow-scrolling: touch; }
 
@@ -259,22 +282,27 @@ td code { white-space: nowrap; }
             <p class="eyebrow">ESP32-S3 &middot; e-paper &middot; Bluetooth LE</p>
             <h1>Your outdoor thermometer, on calm e-paper.</h1>
             <p class="lede">Open-source firmware for the Waveshare ESP32-S3-ePaper-1.54. It shows a Govee BLE thermometer
-                with a 24-hour trend, keeps real time, logs to a micro SD card and runs on the board's battery:
-                awake for a couple of seconds each minute, asleep for the rest.</p>
+                with a 24-hour trend and the room temperature, logs to a micro SD card and runs on the board's battery,
+                waking for a second or two every five minutes.</p>
             <div class="actions">
                 <a class="btn btn-primary" href="./app/">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                     Set the clock</a>
                 <a class="btn btn-ghost" href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz">View on GitHub</a>
             </div>
+            <aside class="ai-note" aria-label="About this project">
+                <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/><path d="M13.5 5l-3 14"/></svg></span>
+                <p><b>An experiment in what modern LLMs can do in embedded IoT.</b> The firmware, web app, scripts, tests
+                    and these pages were written by AI coding agents &mdash; no line of code was touched by a human.</p>
+            </aside>
             <div class="hero-art">
                 <img src="images/hero.png" width="1580" height="570" fetchpriority="high"
-                     alt="Three e-paper devices side by side. Left, the trend layout: 14:47, 9.8 degrees, 24-hour high 11.9 and low 3.7, a temperature curve, 71.6 percent humidity and 81 percent battery. Middle, the clock layout: a large 14:47, outdoor 9.8 degrees and indoor 21.5 degrees with battery levels. Right, the focus layout: a large 9.8 degrees Celsius with signal bars, humidity and battery.">
+                     alt="Three e-paper devices side by side. Left, the trend layout: 9.8 degrees with the reading time 14:45 below, 24-hour high 11.9 and low 3.7, a temperature curve ending at 14:45, 71.6 percent humidity and 81 percent battery. Middle, the dual layout: AUSSEN 9.8 degrees, read at 14:45, with 81 percent sensor battery, and INNEN 21.5 degrees with 78 percent board battery. Right, the focus layout: a large 9.8 degrees Celsius with signal bars, the reading time 14:45, humidity and battery.">
             </div>
             <div class="stats" role="list">
                 <div role="listitem"><b>200&times;200</b><span>black/white e-paper</span></div>
-                <div role="listitem"><b>1.5&ndash;2.7&nbsp;s</b><span>awake per minute, measured</span></div>
-                <div role="listitem"><b>~0.75&nbsp;s</b><span>partial refresh</span></div>
+                <div role="listitem"><b>every 5&nbsp;min</b><span>wake, scan, refresh, sleep</span></div>
+                <div role="listitem"><b>~6&ndash;10&nbsp;wk</b><span>estimated, 650&nbsp;mAh LiPo</span></div>
                 <div role="listitem"><b>24&nbsp;h</b><span>trend in 10-min steps</span></div>
             </div>
         </div>
@@ -296,13 +324,13 @@ td code { white-space: nowrap; }
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></div>
-                    <h3>Deep sleep every minute</h3>
-                    <p>Wakes 3 s after each full minute, scans, refreshes the panel and sleeps again. Measured awake time: about 1.5&ndash;2.7 s.</p>
+                    <h3>Five-minute rhythm</h3>
+                    <p>Wakes 3 s after :00, :05, :10&nbsp;&hellip;, scans, refreshes the panel and returns to deep sleep after roughly 2&nbsp;s. The 80&nbsp;MHz CPU naps in light sleep while the panel refreshes.</p>
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
-                    <h3>A real clock</h3>
-                    <p>The on-board PCF85063A keeps UTC on battery, even with the board switched off. A POSIX time zone handles daylight saving.</p>
+                    <h3>Readings with a time</h3>
+                    <p>Each layout shows when the last reading arrived, so an old value is easy to spot. The on-board PCF85063A keeps UTC on battery; a POSIX time zone handles daylight saving.</p>
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16l5-6 4 4 4-5"/><path d="M19 5.5v.01"/><path d="M3 20h18"/></svg></div>
@@ -312,17 +340,17 @@ td code { white-space: nowrap; }
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg></div>
                     <h3>Indoor, too</h3>
-                    <p>The on-board SHTC3 measures the room temperature. The Clock layout shows it next to the outdoor reading.</p>
+                    <p>The on-board SHTC3 measures the room temperature at every wake. The Dual layout shows it below the outdoor reading.</p>
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 10.5v3M9.5 10.5v3"/></svg></div>
                     <h3>Board battery gauge</h3>
-                    <p>Reads the LiPo via ADC (GPIO4, 1:2 divider) right after waking, before the radio starts and pulls the voltage down.</p>
+                    <p>Reads the LiPo via ADC (GPIO4, 1:2 divider) at every wake, before the radio starts and pulls the voltage down. Shown in percent, logged in millivolts.</p>
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l4 4v13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M11 3v4M14 3v4M17 4.5V7"/></svg></div>
                     <h3>Hourly CSV log</h3>
-                    <p>One row per hour on a FAT32 micro SD card, one file per month. No card? It fails within milliseconds and retries next hour.</p>
+                    <p>One row per hour on a FAT32 micro SD card, one file per month: outdoor and indoor values plus the board battery voltage. No card? It fails within milliseconds and retries next hour.</p>
                 </article>
                 <article class="card">
                     <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg></div>
@@ -338,34 +366,35 @@ td code { white-space: nowrap; }
             <div class="section-head">
                 <p class="eyebrow">Layouts</p>
                 <h2 id="layouts-h">Three ways to read the weather</h2>
-                <p class="lede">Hold the BOOT button for a second to switch layouts. The device labels are German:
+                <p class="lede">Hold the BOOT button for a second to switch layouts. None of them shows the current time:
+                    the small <em>HH:MM</em> is when the last sensor reading arrived. The device labels are German:
                     <em>AUSSEN</em> is outdoor, <em>INNEN</em> is indoor, <em>jetzt</em> is now.</p>
             </div>
             <div class="layouts">
                 <figure class="device">
                     <div class="shot"><img src="images/layout-trend.png" width="540" height="570" loading="lazy"
-                        alt="Trend layout: time 14:47, 9.8 degrees, 24-hour high 11.9 and low 3.7, a curve from minus 24 hours to now with a gap, 71.6 percent humidity and 81 percent sensor battery."></div>
-                    <figcaption><strong>Trend <span class="tag">default</span></strong>Time, temperature, 24&nbsp;h high and low, the 24&nbsp;h curve, humidity and sensor battery.</figcaption>
+                        alt="Trend layout: 9.8 degrees with the reading time 14:45 below, 24-hour high 11.9 and low 3.7, a curve from minus 24 hours to 14:45 with a gap, 71.6 percent humidity and 81 percent sensor battery."></div>
+                    <figcaption><strong>Trend <span class="tag">default</span></strong>Temperature with the reading's time below, 24&nbsp;h high and low, the 24&nbsp;h curve, humidity and sensor battery. The axis end shows the reading's time while it is in the newest 10-min slot, else <em>jetzt</em>.</figcaption>
                 </figure>
                 <figure class="device">
                     <div class="shot"><img src="images/layout-focus.png" width="540" height="570" loading="lazy"
-                        alt="Focus layout: time 14:47 with signal bars, a large 9.8 degrees Celsius, 71.6 percent humidity and 81 percent sensor battery."></div>
-                    <figcaption><strong>Focus</strong>One big temperature in 72&nbsp;px digits, signal bars, humidity and sensor battery.</figcaption>
+                        alt="Focus layout: signal bars, a large 9.8 degrees Celsius with the reading time 14:45 below, 71.6 percent humidity and 81 percent sensor battery."></div>
+                    <figcaption><strong>Focus</strong>One big temperature in 72&nbsp;px digits with the reading's time below, signal bars, humidity and sensor battery.</figcaption>
                 </figure>
                 <figure class="device">
-                    <div class="shot"><img src="images/layout-clock.png" width="540" height="570" loading="lazy"
-                        alt="Clock layout: a large 14:47, below it AUSSEN 9.8 degrees with 81 percent sensor battery and INNEN 21.5 degrees with 78 percent board battery."></div>
-                    <figcaption><strong>Clock</strong>The time in 60&nbsp;px digits, outdoor temperature with sensor battery, indoor temperature with board battery.</figcaption>
+                    <div class="shot"><img src="images/layout-dual.png" width="540" height="570" loading="lazy"
+                        alt="Dual layout: AUSSEN with 81 percent sensor battery, 9.8 degrees and the reading time 14:45 to its right; below a dotted line, INNEN with 78 percent board battery and 21.5 degrees."></div>
+                    <figcaption><strong>Dual</strong>Outdoor and indoor in 48&nbsp;px: the sensor's reading with its time and battery, and the on-board SHTC3 with the board battery.</figcaption>
                 </figure>
                 <figure class="device alt">
                     <div class="shot"><img src="images/layout-setup.png" width="540" height="570" loading="lazy"
-                        alt="Clock layout right after power-up: the time shows dashes because the clock is not set yet, and a Bluetooth symbol marks the open setup window."></div>
-                    <figcaption><strong>Setup window</strong>Right after power-up: <code>--:--</code> until the clock is set, and the Bluetooth symbol while the clock service is open.</figcaption>
+                        alt="Dual layout right after power-up: a Bluetooth symbol next to AUSSEN marks the open setup window; the outdoor temperature, its time and battery show dashes because no reading has arrived yet; INNEN shows 21.9 degrees with 100 percent board battery."></div>
+                    <figcaption><strong>Setup window</strong>Here in the Dual layout, right after power-up: dashes until the first reading, its time stays <code class="nw">--:--</code> until the clock is set, and a Bluetooth symbol (shown in every layout) while the clock service is open.</figcaption>
                 </figure>
             </div>
             <ul class="keys" aria-label="BOOT button">
                 <li><span class="press">tap</span><div><b>Rotate</b><span>Turns the UI another 90&deg; clockwise.</span></div></li>
-                <li><span class="press">1&nbsp;s</span><div><b>Next layout</b><span>Trend, Focus, Clock, and around again.</span></div></li>
+                <li><span class="press">1&nbsp;s</span><div><b>Next layout</b><span>Trend, Focus, Dual, and around again.</span></div></li>
                 <li><span class="press">5&nbsp;s</span><div><b>Setup window</b><span>Hold, then release while it sleeps: set the clock or flash.</span></div></li>
             </ul>
             <p class="note">A press wakes the board from deep sleep. Rotation and layout are stored in flash (NVS).
@@ -377,30 +406,31 @@ td code { white-space: nowrap; }
         <div class="wrap">
             <div class="section-head">
                 <p class="eyebrow">How it works</p>
-                <h2 id="how-h">A minute in the life of the display</h2>
+                <h2 id="how-h">Five minutes in the life of the display</h2>
                 <p class="lede">After a five-minute setup window the board settles into a simple rhythm, aligned to the wall clock.</p>
             </div>
-            <figure class="minute" aria-labelledby="minute-cap">
-                <div class="bar" aria-hidden="true"><span class="awake"></span><span class="sleep"><span>deep sleep &asymp; 57&nbsp;s</span></span></div>
-                <div class="ticks" aria-hidden="true"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span>:00</span></div>
-                <figcaption id="minute-cap" class="legend">
-                    <span><i></i>Awake from :03, about 1.5&ndash;2.7&nbsp;s (measured)</span>
-                    <span><i class="off"></i>Deep sleep until 3&nbsp;s after the next minute</span>
+            <figure class="cycle" aria-labelledby="cycle-cap">
+                <div class="pin" aria-hidden="true"><span>awake &asymp; 2&nbsp;s</span></div>
+                <div class="bar" aria-hidden="true"><span class="awake"></span><span class="sleep"><span>deep sleep &asymp; 298&nbsp;s</span></span></div>
+                <div class="ticks" aria-hidden="true"><span>hh:00</span><span>:01</span><span>:02</span><span>:03</span><span>:04</span><span>hh:05</span></div>
+                <figcaption id="cycle-cap" class="legend">
+                    <span><i></i>Awake from hh:00:03 for roughly 2&nbsp;s: the thin sliver, drawn to scale</span>
+                    <span><i class="off"></i>Deep sleep until 3&nbsp;s after the next five-minute mark</span>
                 </figcaption>
             </figure>
             <div class="how">
                 <ol class="timeline">
-                    <li><span class="when">hh:mm:03</span><h3>Wake</h3>
-                        <p>Three seconds after every full minute, so the display never shows the previous one. While the clock is unset it keeps a steady 60&nbsp;s rhythm.</p></li>
+                    <li><span class="when">hh:00:03, hh:05:03 &hellip;</span><h3>Wake</h3>
+                        <p>Three seconds after every fifth minute, so the hourly log row never slips into the next cycle. If the drifting sleep timer wakes the board a little early, it does not wake again seconds later. While the clock is unset it keeps a steady 5-minute rhythm.</p></li>
                     <li><span class="when">right away</span><h3>Measure on board</h3>
-                        <p>Indoor temperature from the SHTC3 and the board battery, before the radio adds load.</p></li>
-                    <li><span class="when">&le; 8 s, typically ~1 s</span><h3>Listen for the sensor</h3>
-                        <p>The scan stops at the first advertisement from the remembered sensor address. Without one, the last values stay on screen.</p></li>
+                        <p>Indoor temperature from the SHTC3 and the board battery, before the radio starts and adds load.</p></li>
+                    <li><span class="when">&le; 3 s, typically ~1 s</span><h3>Listen for the sensor</h3>
+                        <p>The scan stops at the first advertisement from the remembered sensor address. Without one, the last values and their time stay on screen.</p></li>
                     <li><span class="when">~0.75 s</span><h3>Radio off, refresh</h3>
-                        <p>A partial e-paper refresh. Every 15th time a full refresh (~1.85&nbsp;s) clears any ghosting.</p></li>
+                        <p>A partial e-paper refresh, with the CPU in automatic light sleep while it waits. Every 15th time a full refresh (~1.85&nbsp;s) clears any ghosting.</p></li>
                     <li><span class="when">once per hour</span><h3>Log</h3>
                         <p>The first cycle of each hour appends a CSV row to the SD card.</p></li>
-                    <li><span class="when">until next minute</span><h3>Sleep</h3>
+                    <li><span class="when">until the next mark</span><h3>Sleep</h3>
                         <p>The panel controller sleeps, its supply is cut, the battery latch (GPIO17) is held, and the ESP32-S3 enters deep sleep.</p></li>
                 </ol>
                 <div class="stack">
@@ -408,18 +438,40 @@ td code { white-space: nowrap; }
                         <h3>Setup window after power-up</h3>
                         <ul>
                             <li>Five minutes awake with the BLE clock service <code class="nw">EPD-Uhr</code> advertised.</li>
-                            <li>Continuous sensor scan. Redraws on a new minute, a button press or a clock change; new readings at most every 15&nbsp;s.</li>
+                            <li>Continuous sensor scan. Redraws once a minute, on a button press or a clock change; new readings at most every 15&nbsp;s.</li>
                             <li>If the web page is still connected at the end, it waits up to 2 more minutes.</li>
                             <li>The USB port stays up: the easiest moment to flash.</li>
                         </ul>
                     </div>
                     <div class="card">
                         <h3>What lands on the card</h3>
-                        <p class="small" style="margin: 8px 0 14px">FAT32, one file per month: <code class="nw">/sdcard/YYYY-MM.csv</code>. Rows need a set clock and a reading from the last 10 minutes.</p>
-                        <pre tabindex="0" aria-label="Example CSV file" style="white-space: pre-wrap"><code>local_time,<wbr>utc_epoch,<wbr>temperature_c,<wbr>humidity_pct,<wbr>sensor_battery_pct,<wbr>rssi_dbm
-2026-11-05 14:00:12,<wbr>1793883612,<wbr>12.26,<wbr>63.7,<wbr>62,<wbr>-86</code></pre>
+                        <p class="small" style="margin: 8px 0 14px">FAT32, one file per month: <code class="nw">/sdcard/YYYY-MM.csv</code>. Rows need a set clock and a reading from the last 10 minutes. Unknown values stay empty.</p>
+                        <pre tabindex="0" aria-label="Example CSV file" style="white-space: pre-wrap"><code>local_time,<wbr>utc_epoch,<wbr>temperature_c,<wbr>humidity_pct,<wbr>sensor_battery_pct,<wbr>rssi_dbm,<wbr>indoor_temp_c,<wbr>board_battery_mv
+2026-11-05 14:00:12,<wbr>1793883612,<wbr>12.26,<wbr>63.7,<wbr>62,<wbr>-86,<wbr>21.46,<wbr>3987</code></pre>
+                        <p class="small muted" style="margin: 14px 0 0">A month file with an older, shorter header is left as it is; new rows go to <code class="nw">/sdcard/YYYY-MMb.csv</code>.</p>
                     </div>
-                    <p class="small muted">Last values, the 24&nbsp;h history and the previous frame for partial refreshes live in RTC memory: they survive deep sleep, but not a power cycle. Deep-sleep current and battery life have not been measured yet.</p>
+                    <p class="small muted">Last values, the 24&nbsp;h history and the previous frame for partial refreshes live in RTC memory: they survive deep sleep, but not a power cycle.</p>
+                </div>
+            </div>
+            <div class="power">
+                <div class="card callout">
+                    <h3>Battery life <span class="tag">estimate</span></h3>
+                    <b>~6&ndash;10 weeks</b><span>on a 650&nbsp;mAh LiPo, not measured</span>
+                    <p>That assumes about 0.3&ndash;0.5&nbsp;mA on average: roughly 1.5&ndash;2.5&nbsp;s awake per wake, most of the energy in the BLE scan,
+                        on top of a deep-sleep floor of a few tens of &micro;A plus the regulator, the battery divider (~10&nbsp;&micro;A)
+                        and an SD card if one is inserted.</p>
+                    <p>Much shorter if the sensor is often out of range (every wake then scans the full 3&nbsp;s) or the setup window is opened often.
+                        The log's <code class="nw">board_battery_mv</code> column records the real discharge curve.</p>
+                </div>
+                <div class="card">
+                    <h3>Where the power goes</h3>
+                    <ul>
+                        <li>Measured on the board with the earlier 1-minute, 160&nbsp;MHz build: the sensor is found in about 1&nbsp;s thanks to the remembered address, a partial refresh takes ~0.75&nbsp;s, a full one ~1.85&nbsp;s. These steps depend on the sensor and the panel, so they should hold at 80&nbsp;MHz; the current build has not been measured yet.</li>
+                        <li>The CPU runs at 80&nbsp;MHz. When idle, mostly during the panel refresh, tickless idle drops it into automatic light sleep.</li>
+                        <li>BLE holds off light sleep while it runs, and so does a connected USB host, so the serial console keeps working.</li>
+                        <li>ESP-IDF isolates every GPIO in light sleep (an ESD workaround), so <code class="nw">board_init()</code> first exempts the battery latch (GPIO17), the panel rail (GPIO6) and the panel lines; power management starts after that.</li>
+                        <li>LVGL reads its tick from <code>esp_timer</code> on demand: no periodic timer keeps waking the CPU.</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -493,7 +545,7 @@ td code { white-space: nowrap; }
                     <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/></svg></div>
                         <div><b>Govee thermometer GV5171 / H5171</b><span>Found by its advertised name (contains <code>GV5171</code>, configurable).</span></div></li>
                     <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></svg></div>
-                        <div><b>LiPo battery</b><span>The board runs from it. The firmware holds the power latch (GPIO17) through deep sleep and reads the voltage on GPIO4.</span></div></li>
+                        <div><b>LiPo battery</b><span>The board runs from it; on 650&nbsp;mAh an estimated 6&ndash;10 weeks (not measured). The firmware holds the power latch (GPIO17) through deep and light sleep and reads the voltage on GPIO4.</span></div></li>
                     <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l4 4v13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M11 3v4M14 3v4"/></svg></div>
                         <div><b>micro SD card (optional)</b><span>FAT32, for the hourly CSV log.</span></div></li>
                     <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2v4M15 2v4"/><path d="M6 6h12v4a6 6 0 0 1-12 0z"/><path d="M12 16v6"/></svg></div>
@@ -503,10 +555,12 @@ td code { white-space: nowrap; }
                     <dl class="specs" aria-label="Technical details">
                         <dt>Display</dt><dd>1.54&Prime; 200&times;200 black/white e-paper, GDEY0154D67 (SSD1681)</dd>
                         <dt>Partial / full refresh</dt><dd>~0.75&nbsp;s / ~1.85&nbsp;s, full every 15th refresh</dd>
+                        <dt>Wake cycle</dt><dd>Every 5&nbsp;min, 3&nbsp;s after the mark; BLE scan of at&nbsp;most&nbsp;3&nbsp;s</dd>
+                        <dt>Power</dt><dd>Deep sleep between wakes; 80&nbsp;MHz CPU with automatic light sleep while idle</dd>
                         <dt>Clock</dt><dd>PCF85063A RTC, kept in UTC</dd>
                         <dt>Sensors</dt><dd>Govee via BLE advertisements, on-board SHTC3, board battery on GPIO4</dd>
                         <dt>Firmware</dt><dd>ESP-IDF v5.5.2+, NimBLE (observer + peripheral)</dd>
-                        <dt>Graphics</dt><dd>LVGL 9.6 into a 1-bpp framebuffer with software rotation; 60/72&nbsp;px digit fonts generated from Montserrat Medium</dd>
+                        <dt>Graphics</dt><dd>LVGL 9.6 into a 1-bpp framebuffer with software rotation; a 72&nbsp;px digit font generated from Montserrat Medium by <code class="nw">scripts/gen_font.py</code></dd>
                         <dt>Memory</dt><dd>No PSRAM, so one binary targets V1 and V2; 3&nbsp;MB app partition</dd>
                     </dl>
                     <p class="small muted" style="margin: 20px 0 0">No extra wiring: every connection is on the board.
@@ -531,18 +585,18 @@ cd waveshare-esp32-s3-ble-temp-viz</code></pre></div></div></li>
                     <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/setup.sh</code></pre></div></div></li>
                 <li><div class="card"><h3>Build</h3><p>Or run <code>idf.py build</code> with the ESP-IDF environment sourced.</p>
                     <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/build.sh</code></pre></div></div></li>
-                <li><div class="card"><h3>Flash</h3><p>In deep sleep the USB port is gone. The script waits up to 70&nbsp;s for a wake and flashes with esptool.</p>
+                <li><div class="card"><h3>Flash</h3><p>In deep sleep the USB port is gone, and wakes are five minutes apart: hold BOOT for 5&nbsp;s and release to open the setup window. The script waits up to about 5&nbsp;minutes for the port and flashes with esptool.</p>
                     <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/flash.sh</code></pre></div></div></li>
             </ol>
             <div class="more">
                 <div class="card"><h3>Watch the log</h3>
-                    <p style="margin: 8px 0 14px">Waits for the next wake and follows the log with <code class="nw">--no-reset</code>, so the board is not restarted. The port reappears on every wake.</p>
+                    <p style="margin: 8px 0 14px">Waits up to about 5&nbsp;minutes for a wake and follows the log with <code class="nw">--no-reset</code>, so the board is not restarted. The port reappears on every wake, every five minutes; start it shortly before one, or in the setup window.</p>
                     <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/monitor.sh</code></pre></div></div>
                 <div class="card"><h3>Run the host tests</h3>
                     <p style="margin: 8px 0 14px">Govee decoder, history buffer, date and BCD math, CSV rows, SHTC3 and battery math. No ESP toolchain needed.</p>
                     <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/test_govee.sh</code></pre></div></div>
             </div>
-            <p class="note">Sensor name, refresh cadence, setup window, BLE name and default time zone are in
+            <p class="note">Sensor name, wake interval, scan timeout, full-refresh cadence, setup window, SD log interval, BLE name and default time zone are in
                 <code class="nw">idf.py menuconfig</code> under <em>E-paper display application</em>. Then open the
                 <a href="./app/">clock app</a> and set the time.</p>
         </div>
@@ -554,6 +608,7 @@ cd waveshare-esp32-s3-ble-temp-viz</code></pre></div></div></li>
         <div>
             <p style="margin: 0">MIT License &middot; &copy; 2026 Matthias Schaff</p>
             <p class="small" style="margin: 4px 0 0">An independent hobby project, not affiliated with Waveshare or Govee.</p>
+            <p class="small" style="margin: 4px 0 0">Written entirely by AI coding agents as an experiment in embedded IoT; no line of code was touched by a human.</p>
         </div>
         <nav aria-label="Footer">
             <a href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz">Source on GitHub</a>
