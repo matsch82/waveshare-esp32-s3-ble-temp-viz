@@ -3,19 +3,24 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <string.h>
 
 #define TAG "epd"
 
 /*
- * GDEY0154D67 1.54" 200x200 B/W panel (Waveshare ESP32-S3-ePaper-1.54 V2).
+ * GDEY0154D67 1.54" 200x200 B/W panel with SSD1681 controller (Waveshare
+ * ESP32-S3-ePaper-1.54 V2).
  *
  * The waveform lookup tables and register sequence below are derived from the
  * tuanpmt/esp_epaper component (MIT license), which is specifically written for
  * this board/panel combination. The older GDEH0154D67 / SSD16XX generic flow
  * (0x22 0xF7 without external LUT) does not drive the GDEY panel visibly.
+ *
+ * The panel rail may have been off since the last refresh (deep sleep), which
+ * wipes every register and both RAM banks, so each refresh runs the complete
+ * init and rewrites both RAMs.
  */
 
 static const uint8_t LUT_FULL[159] = {
@@ -62,6 +67,17 @@ static const uint8_t LUT_PARTIAL[159] = {
     0x02, 0x17, 0x41, 0xB0, 0x32, 0x28
 };
 
+/* A full refresh takes ~2-3 s; give up well after that instead of hanging
+   forever on a stuck BUSY line. */
+#define EPD_BUSY_TIMEOUT_MS 10000
+/* RES# low and recovery time, and the wait after SW reset 0x12. */
+#define EPD_RESET_MS 10
+/* BUSY stays high in deep sleep, so entering it is a fixed wait. */
+#define EPD_SLEEP_ENTRY_MS 20
+
+/* Controller is in its own deep sleep (0x10); only a RES# pulse wakes it. */
+static bool s_asleep = false;
+
 /* CS is driven manually so it can stay asserted for a whole frame transfer. */
 static void spi_txn(const uint8_t *data, size_t len)
 {
@@ -93,10 +109,6 @@ static void spi_data_byte(uint8_t b)
     spi_data(&b, 1);
 }
 
-/* A full refresh takes ~2-3 s; give up well after that instead of hanging
-   forever on a stuck BUSY line. */
-#define EPD_BUSY_TIMEOUT_MS 10000
-
 static void epd_wait_idle(void)
 {
     TickType_t start = xTaskGetTickCount();
@@ -105,18 +117,25 @@ static void epd_wait_idle(void)
             ESP_LOGE(TAG, "BUSY still high after %d ms, continuing", EPD_BUSY_TIMEOUT_MS);
             return;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 static void reset_controller(void)
 {
-    gpio_set_level(BOARD_EPD_RST_GPIO, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
     gpio_set_level(BOARD_EPD_RST_GPIO, 0);
-    vTaskDelay(pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(EPD_RESET_MS));
     gpio_set_level(BOARD_EPD_RST_GPIO, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(EPD_RESET_MS));
+    s_asleep = false;
+}
+
+static void enter_deep_sleep(void)
+{
+    spi_cmd(0x10);
+    spi_data_byte(0x01); /* Mode 1: RAM retained */
+    vTaskDelay(pdMS_TO_TICKS(EPD_SLEEP_ENTRY_MS));
+    s_asleep = true;
 }
 
 static void load_lut(const uint8_t *lut)
@@ -162,29 +181,15 @@ static void set_cursor(uint16_t x_start, uint16_t y_start)
     spi_data_byte((y_start >> 8) & 0xFF);
 }
 
-static void turn_on_display_full(void)
-{
-    spi_cmd(0x22);
-    spi_data_byte(0xC7);
-    spi_cmd(0x20);
-    epd_wait_idle();
-}
-
-static void turn_on_display_partial(void)
-{
-    spi_cmd(0x22);
-    spi_data_byte(0xCF);
-    spi_cmd(0x20);
-    epd_wait_idle();
-}
-
-/* Full-refresh initialization (Waveshare V2 EPD_Init). */
-static void epd_init_full(void)
+/* Complete init (Waveshare V2 EPD_Init, then EPD_Init_Partial for partial
+   mode). The hardware reset comes first: it is the only way out of deep
+   sleep, where BUSY stays high, so BUSY is not polled before it. */
+static void init_controller(bool partial)
 {
     reset_controller();
 
-    epd_wait_idle();
     spi_cmd(0x12); /* Software reset */
+    vTaskDelay(pdMS_TO_TICKS(EPD_RESET_MS));
     epd_wait_idle();
 
     spi_cmd(0x01); /* Driver output control */
@@ -195,7 +200,7 @@ static void epd_init_full(void)
     spi_cmd(0x11); /* Data entry mode: Y decrement, X increment */
     spi_data_byte(0x01);
 
-    set_windows(0, EPD_WIDTH - 1, EPD_HEIGHT - 1, 0);
+    set_windows(0, EPD_HEIGHT - 1, EPD_WIDTH - 1, 0);
 
     spi_cmd(0x3C); /* Border waveform */
     spi_data_byte(0x01);
@@ -206,21 +211,12 @@ static void epd_init_full(void)
     spi_cmd(0x22); /* Load temperature and waveform setting */
     spi_data_byte(0xB1);
     spi_cmd(0x20);
-
-    set_cursor(0, EPD_HEIGHT - 1);
     epd_wait_idle();
 
-    load_lut(LUT_FULL);
-}
-
-/* Partial-refresh initialization (Waveshare V2 EPD_Init_Partial). */
-static void epd_init_partial(void)
-{
-    reset_controller();
-    epd_wait_idle();
-
-    set_windows(0, EPD_WIDTH - 1, EPD_HEIGHT - 1, 0);
-    set_cursor(0, EPD_HEIGHT - 1);
+    if (!partial) {
+        load_lut(LUT_FULL);
+        return;
+    }
 
     load_lut(LUT_PARTIAL);
 
@@ -231,68 +227,54 @@ static void epd_init_partial(void)
     spi_cmd(0x3C); /* Border waveform for partial updates */
     spi_data_byte(0x80);
 
-    spi_cmd(0x22);
+    spi_cmd(0x22); /* Clock and analog on ahead of the update */
     spi_data_byte(0xC0);
     spi_cmd(0x20);
     epd_wait_idle();
 }
 
-bool epd_init(void)
+static void write_ram(uint8_t cmd, const uint8_t *buf)
 {
-    board_epd_power_on();
-    vTaskDelay(pdMS_TO_TICKS(20));
-    epd_init_full();
-    return true;
-}
-
-void epd_clear_white_full(void)
-{
-    static uint8_t white[EPD_BUF_SIZE];
-    memset(white, 0xFF, sizeof(white));
-
-    /* Write white to current RAM (0x24) and base RAM (0x26), then refresh. */
-    spi_cmd(0x24);
-    spi_data(white, sizeof(white));
-    spi_cmd(0x26);
-    spi_data(white, sizeof(white));
-    turn_on_display_full();
-
-    /* Switch the controller into partial-refresh mode for subsequent updates. */
-    epd_init_partial();
+    set_cursor(0, EPD_HEIGHT - 1);
+    spi_cmd(cmd);
+    spi_data(buf, EPD_BUF_SIZE);
 }
 
 void epd_refresh_fb(const uint8_t *fb, const uint8_t *prev_fb, bool partial)
 {
-    epd_wait_idle();
+    int64_t start = esp_timer_get_time();
+    if (!prev_fb) partial = false;
 
-    if (partial) {
-        /* The controller was powered off during sleep, so we must restore the
-           previous/base image into RAM 0x26 before the differential update. */
-        epd_init_partial();
-        spi_cmd(0x26);
-        spi_data(prev_fb, EPD_BUF_SIZE);
-        spi_cmd(0x24);
-        spi_data(fb, EPD_BUF_SIZE);
-        turn_on_display_partial();
+    board_epd_power_on();
+    if (!board_epd_is_powered()) {
+        ESP_LOGE(TAG, "panel power-up failed, refresh skipped");
         return;
     }
 
-    /* Full refresh: re-init with the full LUT, write both RAM buffers so the
-       base image matches, refresh, then go back to partial-refresh mode. */
-    epd_init_full();
-    spi_cmd(0x24);
-    spi_data(fb, EPD_BUF_SIZE);
-    spi_cmd(0x26);
-    spi_data(fb, EPD_BUF_SIZE);
-    turn_on_display_full();
-    epd_init_partial();
+    init_controller(partial);
+
+    /* 0x26 holds the image on the glass, 0x24 the new one. */
+    write_ram(0x26, partial ? prev_fb : fb);
+    write_ram(0x24, fb);
+
+    /* Both sequences end with analog and oscillator off. */
+    spi_cmd(0x22);
+    spi_data_byte(partial ? 0xCF : 0xC7);
+    spi_cmd(0x20);
+    epd_wait_idle();
+
+    enter_deep_sleep();
+    ESP_LOGI(TAG, "%s refresh: %d ms", partial ? "partial" : "full",
+             (int)((esp_timer_get_time() - start) / 1000));
 }
 
 void epd_power_off(void)
 {
-    epd_wait_idle();
-    spi_cmd(0x10); /* Deep sleep mode */
-    spi_data_byte(0x01);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    if (board_epd_is_powered() && !s_asleep) {
+        epd_wait_idle();
+        enter_deep_sleep();
+    }
     board_epd_power_off();
+    /* Unpowered now; the next refresh starts with a reset anyway. */
+    s_asleep = false;
 }

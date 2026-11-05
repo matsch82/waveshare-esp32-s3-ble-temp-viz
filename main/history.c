@@ -1,8 +1,17 @@
 #include "history.h"
 
+/* On the device the buffer lives in RTC memory so it survives deep sleep.
+   The host tests build without ESP-IDF. */
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define HISTORY_ATTR RTC_DATA_ATTR
+#else
+#define HISTORY_ATTR
+#endif
+
 /* Ring buffer indexed by absolute slot number (now_sec / HISTORY_SLOT_SEC). */
-static int16_t s_vals[HISTORY_SLOTS];
-static int64_t s_head = -1;    /* slot number of the newest entry, -1 = empty */
+HISTORY_ATTR static int16_t s_vals[HISTORY_SLOTS];
+HISTORY_ATTR static int64_t s_head = -1;    /* slot number of the newest entry, -1 = empty */
 
 static int ring_index(int64_t slot)
 {
@@ -13,7 +22,8 @@ static int ring_index(int64_t slot)
 static void advance(int64_t now_sec)
 {
     int64_t slot = now_sec / HISTORY_SLOT_SEC;
-    if (s_head < 0 || slot - s_head >= HISTORY_SLOTS) {
+    /* A clock that jumped back would put new values into "future" slots. */
+    if (s_head < 0 || slot < s_head || slot - s_head >= HISTORY_SLOTS) {
         history_reset();
         s_head = slot;
         return;

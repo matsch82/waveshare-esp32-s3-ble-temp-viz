@@ -31,6 +31,16 @@ bool button_init(void);
  */
 bool button_take_events(uint32_t timeout_ms, button_events_t *out);
 
+/**
+ * After a deep-sleep wake by the BOOT button: wait until the button is
+ * released (or `max_ms` passed) and return how long it was held since this
+ * call. Works without button_init().
+ */
+uint32_t button_measure_hold_ms(uint32_t max_ms);
+
+/** True while the BOOT button is pressed (raw level, no debouncing). */
+bool button_is_pressed(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Thermometer-Uhr stellen</title>
+<style>
+    :root {
+        --bg: #f5f6f8; --card: #ffffff; --fg: #1b1f24; --muted: #5b6470; --border: #d6dbe1;
+        --tint: rgba(31, 111, 235, 0.08); --accent: #1f6feb; --accent-fg: #ffffff;
+        --ok: #1a7f37; --warn: #9a6700; --err: #cf222e; --focus: #1f6feb;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #0f1216; --card: #171b21; --fg: #e6e9ee; --muted: #9aa3ae; --border: #2c333c;
+            --tint: rgba(76, 141, 255, 0.12); --accent: #4c8dff; --accent-fg: #0b0e12;
+            --ok: #3fb950; --warn: #d29922; --err: #f85149; --focus: #79a8ff;
+        }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    main { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.6rem; line-height: 1.2; margin: 0 0 4px; }
+    h2 { font-size: 1.1rem; margin: 0; }
+    p, ol, dl { margin: 0 0 12px; }
+    ol { padding-left: 1.25em; }
+    li + li { margin-top: 4px; }
+    .lead, .hint, dt { color: var(--muted); }
+    .hint { font-size: 0.9rem; }
+    .warn { color: var(--warn); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .card > :last-child { margin-bottom: 0; }
+    .card-head {
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;
+    }
+    .pill { font-size: 0.85rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px; }
+    .pill[data-on] { color: var(--ok); border-color: var(--ok); }
+    .clock { font-size: 2.5rem; font-weight: 650; line-height: 1.1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+    dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; }
+    dd { margin: 0; font-variant-numeric: tabular-nums; }
+    @media (max-width: 479px) {
+        dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+        dd:not(:last-child) { margin-bottom: 8px; }
+    }
+    code, .mono { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    code { background: var(--tint); border-radius: 4px; padding: 1px 4px; }
+    .sub { display: block; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    select {
+        display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; font: inherit; color: inherit;
+        background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .buttons button { flex: 1 1 auto; }
+    button {
+        min-height: 44px; padding: 0 16px; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600;
+        color: var(--fg); background: var(--card); border: 1px solid var(--border);
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .notice {
+        margin-top: 16px; padding: 12px 16px; border-radius: 8px; border-left: 4px solid var(--warn); background: var(--tint);
+    }
+    .status { padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--border); background: var(--tint); }
+    .status[data-kind="ok"] { border-left-color: var(--ok); }
+    .status[data-kind="busy"] { border-left-color: var(--accent); }
+    .status[data-kind="error"] { border-left-color: var(--err); }
+    .status small { display: block; margin-top: 4px; color: var(--muted); overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>Thermometer-Uhr stellen</h1>
+        <p class="lead">Überträgt Uhrzeit und Zeitzone per Bluetooth an das E-Paper-Thermometer.</p>
+    </header>
+
+    <noscript><p class="notice">Diese Seite braucht JavaScript.</p></noscript>
+    <div id="notice" class="notice" role="alert" hidden></div>
+
+    <section class="card" aria-labelledby="h-time">
+        <div class="card-head"><h2 id="h-time">Uhrzeit dieses Geräts</h2></div>
+        <p class="clock" id="localTime">--:--:--</p>
+        <p class="hint" id="localDate"></p>
+        <dl><dt>Erkannte Zone</dt><dd id="detected">–</dd></dl>
+        <label for="zone">Zeitzone für das Thermometer</label>
+        <select id="zone" aria-describedby="zoneHint"></select>
+        <p id="zoneHint" class="hint warn" hidden>Deine Zone ist nicht in der Liste. Gesendet wird ein fester
+            Versatz zur jetzigen Ortszeit: Sommer- und Winterzeit stellt das Thermometer damit nicht automatisch um.
+            Wähle wenn möglich eine Stadt mit denselben Regeln.</p>
+        <dl>
+            <dt>Wird gesendet</dt><dd><code id="posix">–</code></dd>
+            <dt>Anzeige danach</dt><dd id="preview">–</dd>
+        </dl>
+        <p class="hint">Die Uhrzeit stammt von diesem Computer oder Handy. Dessen Uhr sollte automatisch gestellt sein.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-dev">
+        <div class="card-head">
+            <h2 id="h-dev">Thermometer</h2>
+            <span id="conn" class="pill">Nicht verbunden</span>
+        </div>
+        <div class="buttons">
+            <button id="connect" class="primary" type="button">Verbinden</button>
+            <button id="sync" class="primary" type="button" disabled>Uhrzeit übertragen</button>
+            <button id="disconnect" type="button" disabled>Trennen</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite">Noch nicht verbunden.</p>
+        <dl>
+            <dt>Uhrzeit</dt><dd id="devTime">–</dd>
+            <dt>Zeitzone</dt><dd><span id="devTz" class="mono">–</span><span id="devTzMatch" class="hint sub"></span></dd>
+            <dt>Abweichung</dt><dd id="devDiff">–</dd>
+        </dl>
+        <p class="hint">Der Uhr-Dienst ist nur in den ersten 5 Minuten nach dem Einschalten erreichbar
+            (oder nachdem BOOT 5 Sekunden gedrückt wurde). Danach schläft das Thermometer.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-start">
+        <div class="card-head"><h2 id="h-start">So startest du die Seite</h2></div>
+        <ol>
+            <li>Im Terminal in den Ordner <code>webapp</code> wechseln und <code>python3 -m http.server</code> starten.</li>
+            <li>In Chrome oder Edge <code>http://localhost:8000</code> öffnen.</li>
+            <li>Thermometer einschalten, auf „Verbinden“ klicken und „EPD-Uhr“ auswählen.</li>
+            <li>„Uhrzeit übertragen“ klicken.</li>
+        </ol>
+        <p class="hint">Web Bluetooth gibt es in Chrome und Edge auf dem Desktop und in Chrome unter Android.
+            Safari und Firefox unterstützen es nicht, auf iPhone und iPad geht es nur mit der App Bluefy.
+            Fürs Handy muss die Seite über https erreichbar sein (z. B. GitHub Pages).</p>
+    </section>
+</main>
+
+<script>
+'use strict';
+
+// GATT clock service from main/ble_scanner.h, lowercase as Web Bluetooth requires.
+const SERVICE_UUID = '7a6b1000-3c2d-4e5f-9a8b-1c2d3e4f5a6b';
+const TIME_UUID = '7a6b1001-3c2d-4e5f-9a8b-1c2d3e4f5a6b';
+const TZ_UUID = '7a6b1002-3c2d-4e5f-9a8b-1c2d3e4f5a6b';
+const MIN_VALID_UTC = 1704067200;   // SYSCLOCK_MIN_VALID_UTC (2024-01-01)
+const CONNECT_TIMEOUT_MS = 10000;
+const VERIFY_TRIES = 5;             // the firmware applies writes asynchronously
+const VERIFY_DELAY_MS = 800;
+
+// POSIX footers of tzdata 2026c (tail -n 1 /usr/share/zoneinfo/<zone>); newlib accepts <+03> names.
+const CET = 'CET-1CEST,M3.5.0,M10.5.0/3';
+const EET = 'EET-2EEST,M3.5.0/3,M10.5.0/4';
+const US = (std, dst, hours) => `${std}${hours}${dst},M3.2.0,M11.1.0`;
+const ZONE_GROUPS = [
+    ['Europa', [
+        ['Europe/Berlin', 'Berlin', CET], ['Europe/Vienna', 'Wien', CET], ['Europe/Zurich', 'Zürich', CET],
+        ['Europe/Amsterdam', 'Amsterdam', CET], ['Europe/Brussels', 'Brüssel', CET], ['Europe/Budapest', 'Budapest', CET],
+        ['Europe/Copenhagen', 'Kopenhagen', CET], ['Europe/Luxembourg', 'Luxemburg', CET], ['Europe/Madrid', 'Madrid', CET],
+        ['Europe/Oslo', 'Oslo', CET], ['Europe/Paris', 'Paris', CET], ['Europe/Prague', 'Prag', CET],
+        ['Europe/Rome', 'Rom', CET], ['Europe/Stockholm', 'Stockholm', CET], ['Europe/Warsaw', 'Warschau', CET],
+        ['Europe/London', 'London', 'GMT0BST,M3.5.0/1,M10.5.0'], ['Europe/Dublin', 'Dublin', 'GMT0IST,M3.5.0/1,M10.5.0'],
+        ['Europe/Lisbon', 'Lissabon', 'WET0WEST,M3.5.0/1,M10.5.0'],
+        ['Europe/Athens', 'Athen', EET], ['Europe/Bucharest', 'Bukarest', EET],
+        ['Europe/Helsinki', 'Helsinki', EET], ['Europe/Kyiv', 'Kyjiw', EET],
+        ['Europe/Istanbul', 'Istanbul', '<+03>-3'], ['Europe/Moscow', 'Moskau', 'MSK-3'],
+    ]],
+    ['Amerika', [
+        ['America/New_York', 'New York', US('EST', 'EDT', 5)], ['America/Toronto', 'Toronto', US('EST', 'EDT', 5)],
+        ['America/Chicago', 'Chicago', US('CST', 'CDT', 6)], ['America/Denver', 'Denver', US('MST', 'MDT', 7)],
+        ['America/Phoenix', 'Phoenix', 'MST7'], ['America/Los_Angeles', 'Los Angeles', US('PST', 'PDT', 8)],
+        ['America/Anchorage', 'Anchorage', US('AKST', 'AKDT', 9)], ['Pacific/Honolulu', 'Honolulu', 'HST10'],
+        ['America/Mexico_City', 'Mexiko-Stadt', 'CST6'], ['America/Sao_Paulo', 'São Paulo', '<-03>3'],
+    ]],
+    ['Asien und Pazifik', [
+        ['Asia/Dubai', 'Dubai', '<+04>-4'], ['Asia/Kolkata', 'Indien', 'IST-5:30'],
+        ['Asia/Bangkok', 'Bangkok', '<+07>-7'], ['Asia/Singapore', 'Singapur', '<+08>-8'],
+        ['Asia/Shanghai', 'China', 'CST-8'], ['Asia/Hong_Kong', 'Hongkong', 'HKT-8'],
+        ['Asia/Tokyo', 'Tokio', 'JST-9'], ['Asia/Seoul', 'Seoul', 'KST-9'],
+        ['Australia/Perth', 'Perth', 'AWST-8'], ['Australia/Brisbane', 'Brisbane', 'AEST-10'],
+        ['Australia/Sydney', 'Sydney', 'AEST-10AEDT,M10.1.0,M4.1.0/3'],
+        ['Australia/Melbourne', 'Melbourne', 'AEST-10AEDT,M10.1.0,M4.1.0/3'],
+        ['Pacific/Auckland', 'Auckland', 'NZST-12NZDT,M9.5.0,M4.1.0/3'],
+    ]],
+    ['Weltzeit', [['UTC', 'Koordinierte Weltzeit', 'UTC0']]],
+];
+const ZONE_POSIX = new Map(ZONE_GROUPS.flatMap(([, zones]) => zones.map(([iana, , posix]) => [iana, posix])));
+
+// Legacy names browsers may report (ICU still uses some), and zones sharing a listed zone's rules.
+const ZONE_EQUIV = new Map([
+    ['Etc/UTC', 'UTC'], ['Etc/UCT', 'UTC'], ['Etc/Universal', 'UTC'], ['Etc/Zulu', 'UTC'], ['Etc/GMT', 'UTC'],
+    ['GMT', 'UTC'], ['UCT', 'UTC'], ['Universal', 'UTC'], ['Zulu', 'UTC'],
+    ['Europe/Kiev', 'Europe/Kyiv'], ['Asia/Calcutta', 'Asia/Kolkata'], ['Asia/Istanbul', 'Europe/Istanbul'],
+    ['Asia/Saigon', 'Asia/Bangkok'], ['Asia/Ho_Chi_Minh', 'Asia/Bangkok'], ['America/Montreal', 'America/Toronto'],
+    ['Europe/Belfast', 'Europe/London'], ['Atlantic/Canary', 'Europe/Lisbon'], ['Atlantic/Madeira', 'Europe/Lisbon'],
+    ['Asia/Nicosia', 'Europe/Helsinki'], ['Europe/Nicosia', 'Europe/Helsinki'],
+    ['Australia/ACT', 'Australia/Sydney'], ['Australia/NSW', 'Australia/Sydney'],
+]);
+for (const city of ['Andorra', 'Belgrade', 'Bratislava', 'Busingen', 'Gibraltar', 'Ljubljana', 'Malta', 'Monaco',
+                    'Podgorica', 'San_Marino', 'Sarajevo', 'Skopje', 'Tirane', 'Vaduz', 'Vatican', 'Zagreb']) {
+    ZONE_EQUIV.set(`Europe/${city}`, 'Europe/Berlin');
+}
+for (const city of ['Mariehamn', 'Riga', 'Sofia', 'Tallinn', 'Vilnius']) ZONE_EQUIV.set(`Europe/${city}`, 'Europe/Helsinki');
+
+const FIXED_RE = /^(?:<[-+0-9A-Za-z]{3,}>|[A-Za-z]{3,})([-+]?)(\d{1,2})(?::(\d{2}))?$/;
+
+function resolveZone(name) {
+    if (ZONE_POSIX.has(name)) return name;
+    const same = ZONE_EQUIV.get(name);
+    return same && ZONE_POSIX.has(same) ? same : null;
+}
+
+function zoneForPosix(posix) {
+    for (const [iana, p] of ZONE_POSIX) if (p === posix) return iana;
+    return null;
+}
+
+// getTimezoneOffset() counts minutes west of UTC, the same sign as POSIX.
+function fixedOffsetPosix(offsetMin) {
+    const abs = Math.abs(offsetMin);
+    const mins = abs % 60 ? ':' + String(abs % 60).padStart(2, '0') : '';
+    return `UTC${offsetMin < 0 ? '-' : ''}${Math.floor(abs / 60)}${mins}`;
+}
+
+// Minutes west of UTC for a POSIX string without DST rule, else null.
+function parseFixedOffset(posix) {
+    const m = FIXED_RE.exec(posix || '');
+    return m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0)) : null;
+}
+
+function encodeUtc(secs) {
+    const buf = new ArrayBuffer(8);
+    new DataView(buf).setBigUint64(0, BigInt(secs), true);
+    return new Uint8Array(buf);
+}
+
+const namedError = (name, text) => Object.assign(new Error(text), { name });
+
+function decodeUtc(view) {
+    if (view.byteLength !== 8) throw namedError('FormatError', `${view.byteLength} Bytes statt 8`);
+    return Number(view.getBigUint64(0, true));
+}
+
+function decodeTz(view) {
+    return new TextDecoder().decode(view).replace(/\0+$/, '');
+}
+
+function fmtDuration(s) {
+    if (s < 60) return `${s} s`;
+    if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+    if (s < 172800) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+    return `${Math.floor(s / 86400)} Tage`;
+}
+
+function describeDiff({ utc, diff }) {
+    if (utc < MIN_VALID_UTC) return 'Uhr ist nicht gestellt';
+    if (diff === 0) return '0 s';
+    return `${diff > 0 ? '+' : '−'}${fmtDuration(Math.abs(diff))} (Thermometer geht ${diff > 0 ? 'vor' : 'nach'})`;
+}
+
+function fmtTime(ms, timeZone, seconds = true) {
+    const opts = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone };
+    if (seconds) opts.second = '2-digit';
+    return new Intl.DateTimeFormat('de-DE', opts).format(ms);
+}
+
+// Wall-clock time under a POSIX zone if it is a listed zone or a fixed offset, else null.
+function zoneClock(ms, posix, seconds) {
+    const iana = zoneForPosix(posix);
+    if (iana) return fmtTime(ms, iana, seconds);
+    const west = parseFixedOffset(posix);
+    return west === null ? null : fmtTime(ms - west * 60000, 'UTC', seconds);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+
+// Races `promise` against a timeout (TimeoutError) and the returned abort() (AbortError).
+function guard(promise, ms) {
+    let timer, abort;
+    const stop = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(namedError('TimeoutError', `keine Antwort nach ${ms / 1000} s`)), ms);
+        abort = () => reject(namedError('AbortError', 'abgebrochen'));
+    });
+    return { result: Promise.race([promise, stop]).finally(() => clearTimeout(timer)), abort };
+}
+
+const WAKE_HINT = 'Ist es eingeschaltet, in Reichweite und noch in den ersten 5 Minuten? '
+    + 'Sonst aus- und einschalten (oder BOOT 5 s halten) und erneut verbinden.';
+const RETRY = 'Bitte noch einmal versuchen.';
+const LOST_MSG = 'Die Verbindung zum Thermometer ist abgebrochen. Nach den ersten 5 Minuten schläft es: '
+    + 'zum erneuten Stellen aus- und einschalten (oder BOOT 5 s halten) und neu verbinden.';
+
+function describeError(e, phase) {
+    const msg = (e && e.message) || '';
+    switch (e && e.name) {
+    case 'TimeoutError':
+        return 'Das Thermometer antwortet nicht. ' + WAKE_HINT;
+    case 'NotFoundError':
+        if (/adapter/i.test(msg)) return 'Bluetooth ist ausgeschaltet oder nicht verfügbar.';
+        if (/permission|blocked|denied/i.test(msg)) {
+            return 'Der Browser darf Bluetooth nicht verwenden. Bitte in den Einstellungen erlauben.';
+        }
+        if (phase === 'choose') return 'Kein Thermometer ausgewählt. Taucht „EPD-Uhr“ nicht in der Liste auf: ' + WAKE_HINT;
+        return 'Der Uhr-Dienst wurde nicht gefunden. Passt die Firmware? Sonst Bluetooth hier kurz aus- und einschalten.';
+    case 'SecurityError':
+        return 'Der Browser erlaubt hier kein Bluetooth. Öffne die Seite direkt in einem eigenen Tab '
+            + 'über https:// oder http://localhost.';
+    case 'NotAllowedError':
+        return 'Bluetooth-Zugriff verweigert. Erlaube dem Browser Bluetooth (macOS: Systemeinstellungen › '
+            + 'Datenschutz & Sicherheit › Bluetooth, Android: „Geräte in der Nähe“).';
+    case 'NetworkError':
+    case 'AbortError':
+        return phase === 'connect' ? 'Verbindung fehlgeschlagen. ' + WAKE_HINT : LOST_MSG;
+    case 'InvalidStateError':
+        return 'Die Verbindung ist nicht mehr gültig. Bitte neu verbinden.';
+    case 'NotSupportedError':
+    case 'InvalidModificationError':
+        return phase === 'write' ? 'Das Thermometer hat den Wert abgelehnt.'
+            : 'Das Thermometer kann das nicht. Passt die Firmware?';
+    case 'FormatError':
+        return 'Unerwartete Antwort vom Thermometer. Passt die Firmware?';
+    default:
+        return 'Unerwarteter Fehler.';
+    }
+}
+
+const $ = (id) => document.getElementById(id);
+const DATE_FMT = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+let supported = false;
+let device = null, chTime = null, chTz = null;
+let busy = false, connecting = false;
+let abortConnect = null;       // set while gatt.connect() is pending
+let disconnectReason = null;   // null (unexpected), 'user' or 'silent'
+let fixedPosix = null;
+let devState = null;           // last read: { tz, utc, offsetMs, diff }
+
+function setStatus(text, kind, err) {
+    const el = $('status');
+    el.dataset.kind = kind;
+    el.textContent = text;
+    if (err) {
+        const detail = document.createElement('small');
+        detail.textContent = `${err.name}: ${err.message}`;
+        el.append(detail);
+    }
+}
+
+const deviceName = () => (device && device.name) || 'Thermometer';
+const isConnected = () => !!(device && device.gatt.connected && chTime && chTz);
+
+function currentPosix() {
+    const v = $('zone').value;
+    return v === 'fixed' ? fixedPosix : ZONE_POSIX.get(v) || '';
+}
+
+function updateButtons() {
+    const connected = isConnected();
+    $('connect').disabled = !supported || busy || connected;
+    $('sync').disabled = busy || !connected || !currentPosix();
+    $('disconnect').disabled = !(connected || connecting);
+    const pill = $('conn');
+    pill.textContent = connected ? `Verbunden: ${deviceName()}` : connecting ? 'Verbinde …' : 'Nicht verbunden';
+    pill.toggleAttribute('data-on', connected);
+}
+
+function render() {
+    const now = Date.now();
+    const posix = currentPosix();
+    $('localTime').textContent = fmtTime(now);
+    $('localDate').textContent = DATE_FMT.format(now);
+    $('posix').textContent = posix || '–';
+    $('preview').textContent = (posix && zoneClock(now, posix, false)) || '–';
+    if (!devState) {
+        $('devTime').textContent = '–';
+    } else if (devState.utc < MIN_VALID_UTC) {
+        $('devTime').textContent = 'nicht gestellt';
+    } else {
+        const t = now + devState.offsetMs;
+        $('devTime').textContent = zoneClock(t, devState.tz, true) || `${fmtTime(t, 'UTC')} UTC`;
+    }
+}
+
+function renderDevice() {
+    const s = devState;
+    $('devTz').textContent = s ? s.tz || '(leer)' : '–';
+    $('devTzMatch').textContent = !s ? '' : s.tz === currentPosix() ? 'wie ausgewählt' : 'anders als ausgewählt';
+    $('devDiff').textContent = s ? describeDiff(s) : '–';
+    render();
+}
+
+function tick() {
+    render();
+    setTimeout(tick, 1000 - (Date.now() % 1000) + 20);
+}
+
+function onZoneChange() {
+    $('zoneHint').hidden = $('zone').value !== 'fixed';
+    renderDevice();
+    updateButtons();
+}
+
+function buildZoneSelect(detected) {
+    const sel = $('zone');
+    for (const [label, zones] of ZONE_GROUPS) {
+        const group = document.createElement('optgroup');
+        group.label = label;
+        group.append(...zones.map(([iana, name]) => new Option(`${name} (${iana})`, iana)));
+        sel.append(group);
+    }
+    const known = resolveZone(detected);
+    $('detected').textContent = detected || 'nicht erkannt';
+    if (known && known !== detected) $('detected').textContent += ` (gleiche Regeln wie ${known})`;
+    if (known || !detected) {
+        sel.value = known || 'Europe/Berlin';
+        return;
+    }
+    fixedPosix = fixedOffsetPosix(new Date().getTimezoneOffset());
+    sel.prepend(new Option(`${detected}: fester Versatz ${fixedPosix}`, 'fixed'));
+    sel.value = 'fixed';
+}
+
+function showNotice(text) {
+    $('notice').textContent = text;
+    $('notice').hidden = false;
+}
+
+function checkSupport() {
+    if (!window.isSecureContext) {
+        showNotice(`Diese Seite ist über eine unsichere Adresse geöffnet (${location.origin}). Web Bluetooth `
+            + 'funktioniert nur über https:// oder http://localhost, siehe „So startest du die Seite“.');
+    } else if (!navigator.bluetooth) {
+        showNotice('Dieser Browser kann kein Web Bluetooth. Nutze Chrome oder Edge auf dem Desktop oder Chrome unter Android. '
+            + 'Auf iPhone und iPad geht es nur mit der App Bluefy, Safari und Firefox unterstützen es nicht.');
+    } else {
+        if (navigator.bluetooth.getAvailability) {
+            navigator.bluetooth.getAvailability().then((ok) => {
+                if (!ok) showNotice('Kein Bluetooth gefunden. Ist Bluetooth eingeschaltet und darf der Browser es nutzen?');
+            }).catch(() => {});
+        }
+        return true;
+    }
+    setStatus('Verbinden ist in diesem Browser nicht möglich.', 'error');
+    return false;
+}
+
+function dropLink() {
+    chTime = chTz = null;
+    devState = null;
+    if (device) {
+        if (disconnectReason !== 'user') disconnectReason = 'silent';
+        device.gatt.disconnect();   // also cancels a pending connection attempt
+    }
+    renderDevice();
+}
+
+function onDisconnected(ev) {
+    if (ev.target !== device) return;
+    chTime = chTz = null;
+    devState = null;
+    renderDevice();
+    updateButtons();
+    if (disconnectReason === 'user') setStatus('Getrennt.', 'info');
+    else if (disconnectReason !== 'silent') setStatus(LOST_MSG, 'error');
+}
+
+async function readDevice() {
+    const tz = decodeTz(await chTz.readValue());
+    const t0 = Date.now();
+    const utc = decodeUtc(await chTime.readValue());
+    // Whole seconds only: the device clock is about utc + 0.5 at the midpoint of the read.
+    const offsetMs = (utc + 0.5) * 1000 - (t0 + Date.now()) / 2;
+    devState = { tz, utc, offsetMs, diff: Math.round(offsetMs / 1000) };
+    renderDevice();
+}
+
+function writeChar(ch, data) {
+    return ch.writeValueWithResponse ? ch.writeValueWithResponse(data) : ch.writeValue(data);
+}
+
+async function connect() {
+    let phase = 'choose';
+    disconnectReason = null;
+    try {
+        // First call in the click handler, so it runs with the user activation.
+        const d = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE_UUID] }] });
+        device = d;
+        d.ongattserverdisconnected = onDisconnected;
+        phase = 'connect';
+        connecting = true;
+        updateButtons();
+        setStatus(`Verbinde mit „${deviceName()}“ …`, 'busy');
+        const attempt = guard(d.gatt.connect(), CONNECT_TIMEOUT_MS);
+        abortConnect = attempt.abort;
+        const server = await attempt.result.finally(() => { abortConnect = null; });
+        const svc = await server.getPrimaryService(SERVICE_UUID);
+        chTz = await svc.getCharacteristic(TZ_UUID);
+        chTime = await svc.getCharacteristic(TIME_UUID);
+        connecting = false;
+        phase = 'read';
+        await readDevice();
+        setStatus(`Verbunden mit „${deviceName()}“. Abweichung: ${describeDiff(devState)}.`, 'ok');
+    } catch (e) {
+        const aborted = disconnectReason === 'user';
+        const cancelled = phase === 'choose' && e.name === 'NotFoundError' && /cancel/i.test(e.message);
+        connecting = false;
+        dropLink();
+        if (aborted) setStatus('Verbindungsaufbau abgebrochen.', 'info');
+        else setStatus(describeError(e, phase), cancelled ? 'info' : 'error', cancelled ? null : e);
+    }
+}
+
+async function sync() {
+    const posix = currentPosix();
+    if (!isConnected() || !posix) return;
+    let phase = 'write';
+    try {
+        setStatus('Übertrage Zeitzone …', 'busy');
+        await writeChar(chTz, new TextEncoder().encode(posix));
+        setStatus('Übertrage Uhrzeit …', 'busy');
+        const nextSecond = (Math.floor(Date.now() / 1000) + 1) * 1000;
+        await sleep(nextSecond - Date.now());
+        await writeChar(chTime, encodeUtc(Math.round(Date.now() / 1000)));
+        phase = 'read';
+        setStatus('Prüfe das Ergebnis …', 'busy');
+        for (let i = 0; i < VERIFY_TRIES; i++) {
+            await sleep(VERIFY_DELAY_MS);
+            await readDevice();
+            if (devState.tz === posix && Math.abs(devState.diff) <= 1) break;
+        }
+        if (devState.tz !== posix) {
+            setStatus(`Übertragen, aber das Thermometer meldet die Zeitzone „${devState.tz}“. ${RETRY}`, 'error');
+        } else if (Math.abs(devState.diff) > 1) {
+            setStatus(`Übertragen, aber die Abweichung beträgt noch ${describeDiff(devState)}. ${RETRY}`, 'error');
+        } else {
+            setStatus(`Fertig: Uhrzeit und Zeitzone sind übertragen. Abweichung: ${describeDiff(devState)}.`, 'ok');
+        }
+    } catch (e) {
+        if (disconnectReason === 'user') setStatus('Getrennt.', 'info');
+        /* A disconnect during one of the waits surfaces as a TypeError on the
+           dropped characteristic, not as a GATT error. */
+        else if (!isConnected()) setStatus(LOST_MSG, 'error');
+        else setStatus(describeError(e, phase), 'error', e);
+    }
+}
+
+function disconnect() {
+    if (!device) return;
+    disconnectReason = 'user';
+    if (abortConnect) abortConnect();
+    device.gatt.disconnect();
+    updateButtons();
+}
+
+// GATT operations never overlap: the buttons stay disabled while one runs.
+async function run(task) {
+    if (busy) return;
+    busy = true;
+    updateButtons();
+    try {
+        await task();
+    } finally {
+        busy = false;
+        updateButtons();
+    }
+}
+
+function init() {
+    let detected = null;
+    try {
+        detected = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch (e) { /* no Intl time zone support: default to Berlin */ }
+    buildZoneSelect(detected);
+    supported = checkSupport();
+    $('zone').addEventListener('change', onZoneChange);
+    $('connect').addEventListener('click', () => run(connect));
+    $('sync').addEventListener('click', () => run(sync));
+    $('disconnect').addEventListener('click', disconnect);
+    onZoneChange();
+    tick();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

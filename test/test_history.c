@@ -38,6 +38,14 @@ int main(void)
     history_get(v, (11 + HISTORY_SLOTS) * HISTORY_SLOT_SEC);
     EXPECT(!history_min_max(v, &lo, &hi), "values older than 24 h dropped");
 
+    /* A clock running backwards starts a fresh history. */
+    history_reset();
+    history_add(200, 50 * HISTORY_SLOT_SEC);
+    history_add(210, 40 * HISTORY_SLOT_SEC);
+    history_get(v, 40 * HISTORY_SLOT_SEC);
+    EXPECT(v[HISTORY_SLOTS - 1] == 210 && history_min_max(v, &lo, &hi) && lo == 210 && hi == 210,
+           "time going backwards resets history");
+
     /* Slot 0 entry is still visible exactly HISTORY_SLOTS - 1 slots later. */
     history_reset();
     history_add(100, 0);

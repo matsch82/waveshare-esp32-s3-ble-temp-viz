@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #define TAG "button"
 
@@ -95,6 +96,42 @@ bool button_init(void)
         return false;
     }
     return true;
+}
+
+static bool s_input_ready = false;
+
+static void configure_input(void)
+{
+    if (s_input_ready) return;
+    s_input_ready = true;
+    gpio_config_t io_conf = {
+        .pin_bit_mask = 1ULL << BOARD_BOOT_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+}
+
+bool button_is_pressed(void)
+{
+    configure_input();
+    return gpio_get_level(BOARD_BOOT_BUTTON_GPIO) == 0;
+}
+
+uint32_t button_measure_hold_ms(uint32_t max_ms)
+{
+    configure_input();
+    uint32_t held = 0;
+    uint8_t released = 0;
+    /* Count as released only after BUTTON_STABLE_COUNT high samples. */
+    while (held < max_ms && released < BUTTON_STABLE_COUNT) {
+        released = button_is_pressed() ? 0 : released + 1;
+        vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_MS));
+        held += BUTTON_POLL_MS;
+    }
+    return released >= BUTTON_STABLE_COUNT ? held - released * BUTTON_POLL_MS : held;
 }
 
 bool button_take_events(uint32_t timeout_ms, button_events_t *out)

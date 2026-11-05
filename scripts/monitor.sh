@@ -8,13 +8,28 @@ if [ ! -f "${IDF_DIR}/export.sh" ]; then
 fi
 . "${IDF_DIR}/export.sh"
 
+find_port() {
+    find /dev -maxdepth 1 \( -name 'cu.usbserial*' -o -name 'cu.usbmodem*' -o -name 'ttyACM*' \) 2>/dev/null | head -n1 || true
+}
+
 PORT="${1:-}"
 if [ -z "${PORT}" ]; then
-    PORT=$(find /dev -maxdepth 1 -name 'cu.usbserial*' -o -name 'cu.usbmodem*' -o -name 'ttyACM*' 2>/dev/null | head -n1 || true)
+    PORT=$(find_port)
+fi
+if [ -z "${PORT}" ]; then
+    # In the deep-sleep cycle the USB port only exists while the board is awake.
+    echo "Waiting up to 70 s for the board to wake up ..."
+    for _ in $(seq 1 1400); do
+        PORT=$(find_port)
+        [ -n "${PORT}" ] && break
+        sleep 0.05
+    done
 fi
 if [ -z "${PORT}" ]; then
     echo "No serial port found. Pass it explicitly: ./scripts/monitor.sh /dev/cu.usbmodemXXXX"
     exit 1
 fi
 
-idf.py -p "${PORT}" monitor
+# --no-reset: a reset would restart the board into the setup window. The
+# monitor reconnects on its own each time the port comes back after a wake.
+idf.py -p "${PORT}" monitor --no-reset

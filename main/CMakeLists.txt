@@ -8,7 +8,15 @@ idf_component_register(
         "ble_scanner.c"
         "govee_decode.c"
         "history.c"
+        "sysclock.c"
+        "civil_time.c"
+        "shtc3.c"
+        "battery.c"
+        "sensor_math.c"
+        "sdlog.c"
+        "sdlog_format.c"
         "assets/font_digits_72.c"
+        "assets/font_digits_60.c"
     INCLUDE_DIRS
         "."
         "assets"
@@ -17,5 +25,7 @@ idf_component_register(
         bt
         nvs_flash
         esp_timer
+        esp_adc
+        fatfs
         lvgl
 )

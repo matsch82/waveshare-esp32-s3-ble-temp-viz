@@ -8,7 +8,8 @@ if [ ! -f "${IDF_DIR}/export.sh" ]; then
 fi
 . "${IDF_DIR}/export.sh"
 
-if [ ! -d build ] || [ ! -f build/sdkconfig ]; then
+# set-target wipes build/ and regenerates sdkconfig, so only run it once.
+if [ ! -f sdkconfig ]; then
     idf.py set-target esp32s3
 fi
 idf.py build

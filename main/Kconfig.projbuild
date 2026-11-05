@@ -12,8 +12,58 @@ menu "E-paper display application"
         default 15
         range 1 1000
         help
-            Number of scan/display cycles between full e-paper refreshes.
+            Number of display cycles between full e-paper refreshes.
             Partial refreshes are used on all other cycles to reduce
             flicker. The first refresh after boot is always a full one.
+
+    config APP_SETUP_WINDOW_SEC
+        int "Setup window after power-up (seconds)"
+        default 300
+        range 30 3600
+        help
+            After power-up (or a restart via a 5 s BOOT press) the device
+            stays awake this long: the BLE clock service is advertised so the
+            web page can set the clock, and the display updates on every
+            sensor reading. Afterwards the deep-sleep cycle starts.
+
+    config APP_WAKE_INTERVAL_SEC
+        int "Deep-sleep wake interval (seconds)"
+        default 60
+        range 10 3600
+        help
+            The device wakes this often, waits for one sensor advertisement,
+            updates the display and sleeps again. With a valid clock and an
+            interval of 60 s the wakes are aligned to the start of a minute.
+
+    config APP_WAKE_SCAN_TIMEOUT_MS
+        int "Maximum BLE scan time per wake (ms)"
+        default 8000
+        range 1000 30000
+        help
+            If the sensor is not heard within this time the last values are
+            shown again.
+
+    config APP_SD_LOG_INTERVAL_SEC
+        int "SD card log interval (seconds)"
+        default 3600
+        range 60 86400
+        help
+            A row is appended to the CSV file on the SD card at most this
+            often, on the first cycle of each interval (aligned to the wall
+            clock). Needs a valid clock.
+
+    config APP_BLE_NAME
+        string "BLE device name in setup mode"
+        default "EPD-Uhr"
+        help
+            Name shown by the browser when the web page searches for the
+            clock service.
+
+    config APP_DEFAULT_TZ
+        string "Default POSIX time zone"
+        default "CET-1CEST,M3.5.0,M10.5.0/3"
+        help
+            Used until the web page sends a time zone. The default is
+            Central European Time with daylight saving time.
 
 endmenu
