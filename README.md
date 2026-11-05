@@ -297,6 +297,10 @@ Orientation and layout are stored in NVS and survive a power cycle.
 | Storage | micro SD slot, FAT32 card (optional) |
 | Outdoor sensor | Govee GV5171 / H5171 BLE thermometer, advertised e.g. as `GV5171385C` (matched by the name containing `GV5171`, case-insensitive) |
 
+> By the way, it doesn't have to be *your* thermometer. The sensor broadcasts
+> its readings to anyone in Bluetooth range, and the firmware only listens.
+> So the neighbour's balcony sensor works just as well. 😉
+
 No extra wiring is required. On-board connections:
 
 | Signal | GPIO | Notes |
