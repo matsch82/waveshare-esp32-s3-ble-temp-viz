@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>e-Paper BLE Thermometer</title>
+<meta name="description" content="Open-source ESP-IDF firmware that turns the Waveshare ESP32-S3-ePaper-1.54 into a battery-powered e-paper display for a Govee BLE thermometer, with a real-time clock, a 24 h trend and an hourly SD card log.">
+<meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="e-Paper BLE Thermometer">
+<meta property="og:description" content="A Govee BLE thermometer on a 200x200 e-paper display: wakes for a couple of seconds each minute, sleeps for the rest.">
+<meta property="og:image" content="https://matsch82.github.io/waveshare-esp32-s3-ble-temp-viz/images/hero.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='6' fill='%23222224'/%3E%3Crect x='6' y='6' width='20' height='18' rx='1.5' fill='%23ecebe3'/%3E%3Cpath d='M8 19l4-5 3 3 4-6 3 4' fill='none' stroke='%23222224' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+    --bg: #f3f0e8; --surface: #fbfaf6; --band: #ebe7dd; --ink: #1c1b18; --muted: #57534a;
+    --line: #d8d2c4; --accent: #b23a1e; --on-accent: #fff8f2; --code-bg: #1f1e1b; --code-ink: #ece8de;
+    --header-bg: rgba(243, 240, 232, 0.86); --shadow: 0 1px 2px rgba(40, 30, 10, .06), 0 8px 24px rgba(40, 30, 10, .07);
+    --glow: transparent; --device-filter: none;
+    --radius: 16px; --wrap: 1120px; --gutter: 16px;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #121211; --surface: #1b1a18; --band: #171614; --ink: #ece8de; --muted: #aaa598;
+        --line: #302e2a; --accent: #f2865f; --on-accent: #1a0d08; --code-bg: #0b0b0a; --code-ink: #e6e2d8;
+        --header-bg: rgba(18, 18, 17, 0.82); --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+        --glow: radial-gradient(60% 55% at 50% 55%, rgba(255, 236, 210, .07), transparent 70%);
+        --device-filter: drop-shadow(0 0 1px rgba(255, 255, 255, .22));
+    }
+}
+@media (min-width: 720px) { :root { --gutter: 32px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: clip;
+}
+img { display: block; max-width: 100%; height: auto; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+h1, h2, h3 { line-height: 1.12; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+h2 { font-size: clamp(1.8rem, 1.2rem + 2.2vw, 2.6rem); }
+h3 { font-size: 1.1rem; letter-spacing: -0.01em; }
+p { margin: 0 0 1em; }
+code, pre, kbd { font-family: var(--mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--band); border: 1px solid var(--line); border-radius: 5px; padding: 0.05em 0.35em; overflow-wrap: anywhere; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 0.4em; background: var(--surface); }
+
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 20; background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; }
+.skip:focus { top: 12px; }
+.eyebrow { font-size: 0.8rem; font-weight: 650; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+.lede { color: var(--muted); font-size: 1.12rem; max-width: 62ch; margin-top: 16px; }
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; }
+
+/* Header */
+.site-head { position: sticky; top: 0; z-index: 10; background: var(--header-bg); border-bottom: 1px solid var(--line);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px); }
+.site-head .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; margin-right: auto; white-space: nowrap; }
+.brand svg { width: 26px; height: 26px; flex: none; }
+.nav { display: none; gap: 22px; font-size: 0.95rem; }
+.nav a { text-decoration: none; color: var(--muted); }
+.nav a:hover { color: var(--ink); }
+@media (min-width: 860px) { .nav { display: flex; } }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 22px;
+    border-radius: 999px; font-weight: 650; text-decoration: none; border: 1.5px solid var(--ink); white-space: nowrap;
+    transition: transform .15s ease, background-color .15s ease, color .15s ease; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn:hover { transform: translateY(-1px); color: inherit; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { color: var(--on-accent); filter: brightness(1.06); }
+.btn-ghost { background: transparent; color: var(--ink); }
+.btn-ghost:hover { background: var(--ink); color: var(--bg); }
+.btn-sm { min-height: 38px; padding: 0 16px; font-size: 0.92rem; border-width: 1.5px; }
+.btn-lg { min-height: 56px; padding: 0 30px; font-size: 1.08rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } .btn:hover { transform: none; } }
+
+/* Hero */
+.hero { padding: 64px 0 40px; text-align: center; }
+.hero h1 { font-size: clamp(2.4rem, 1.4rem + 4.6vw, 4.4rem); letter-spacing: -0.035em; line-height: 1.02; max-width: 18ch; margin: 0 auto; }
+.hero .lede { margin: 22px auto 0; font-size: clamp(1.05rem, 1rem + 0.4vw, 1.25rem); }
+.hero .actions { justify-content: center; margin-top: 32px; }
+.hero-art { margin: 48px auto 0; max-width: 1040px; background: var(--glow); }
+.hero-art img, .device img { filter: var(--device-filter); }
+@media (max-width: 599px) {
+    .hero-art { margin-inline: calc(-1 * var(--gutter)); overflow: hidden; }
+    .hero-art img { width: 170%; max-width: none; margin-left: -35%; }
+}
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 48px auto 0; max-width: 920px;
+    background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; text-align: left; }
+.stats div { background: var(--surface); padding: 18px 20px; }
+.stats b { display: block; font-size: clamp(1.3rem, 1rem + 1vw, 1.7rem); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stats span { color: var(--muted); font-size: 0.9rem; }
+@media (min-width: 760px) { .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } .hero { padding-top: 96px; } }
+
+/* Sections */
+section { padding: 72px 0; }
+@media (min-width: 900px) { section { padding: 104px 0; } }
+.band { background: var(--band); border-block: 1px solid var(--line); }
+.section-head { max-width: 760px; margin-bottom: 44px; }
+
+/* Features */
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }
+.card h3 { margin-bottom: 8px; }
+.card p { color: var(--muted); font-size: 0.95rem; margin: 0; }
+.icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 18px;
+    background: var(--band); border: 1px solid var(--line); color: var(--accent); }
+.icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Layouts */
+.layouts { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+@media (min-width: 980px) { .layouts { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.device { margin: 0; display: flex; flex-direction: column; }
+.device .shot { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 6px 4px; }
+.device figcaption { padding: 14px 4px 0; font-size: 0.93rem; color: var(--muted); }
+.device figcaption strong { display: block; color: var(--ink); font-size: 1.02rem; margin-bottom: 2px; }
+.device.alt .shot { background: transparent; border-style: dashed; }
+.tag { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
+    border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; margin-left: 6px; vertical-align: 2px; }
+.keys { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); margin: 40px 0 0; padding: 0; list-style: none; }
+.keys li { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border: 1px dashed var(--line); border-radius: 12px; font-size: 0.95rem; }
+.keys b { display: block; }
+.keys li > div > span { color: var(--muted); }
+.press { flex: none; min-width: 64px; text-align: center; font: 600 0.82rem/1 var(--mono); padding: 8px 6px; border-radius: 8px; background: var(--ink); color: var(--bg); }
+.note { margin-top: 28px; font-size: 0.9rem; color: var(--muted); }
+
+/* How it works */
+.minute { margin: 0 0 56px; }
+.bar { position: relative; height: 44px; border: 1.5px solid var(--ink); border-radius: 10px; overflow: hidden;
+    background: var(--surface) repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--line) calc(25% - 1px) 25%); }
+.bar .awake { position: absolute; left: 5%; width: 4.5%; top: 0; bottom: 0; background: var(--accent); }
+.bar .sleep { position: absolute; left: 9.5%; right: 0; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+.bar .sleep span { background: var(--surface); padding: 0 10px; font-size: 0.88rem; color: var(--muted); white-space: nowrap; }
+.ticks { display: flex; justify-content: space-between; font: 0.78rem var(--mono); color: var(--muted); margin-top: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; font-size: 0.92rem; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--accent); }
+.legend i.off { background: transparent; border: 1.5px solid var(--ink); }
+.how { display: grid; gap: 40px; }
+@media (min-width: 960px) { .how { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 56px; } }
+.timeline { list-style: none; margin: 0; padding: 0; position: relative; }
+.timeline li { position: relative; padding: 0 0 26px 40px; }
+.timeline li::before { content: ""; position: absolute; left: 7px; top: 22px; bottom: -4px; border-left: 2px dotted var(--line); }
+.timeline li:last-child { padding-bottom: 0; }
+.timeline li:last-child::before { display: none; }
+.timeline li::after { content: ""; position: absolute; left: 0; top: 6px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--ink); }
+.timeline li:first-child::after { background: var(--accent); border-color: var(--accent); }
+.timeline .when { display: inline-block; font: 600 0.78rem/1.6 var(--mono); color: var(--accent); margin-bottom: 2px; }
+.timeline h3 { margin-bottom: 4px; }
+.timeline p { color: var(--muted); margin: 0; font-size: 0.97rem; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; }
+.stack ul { margin: 12px 0 0; padding-left: 1.1em; color: var(--muted); font-size: 0.95rem; }
+.stack li + li { margin-top: 6px; }
+.callout { border-left: 4px solid var(--accent); }
+.callout b { font-size: 1.6rem; letter-spacing: -0.02em; display: block; }
+pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 16px 18px; overflow-x: auto;
+    line-height: 1.55; font-size: 0.84rem; -webkit-overflow-scrolling: touch; }
+
+/* Clock app */
+.split { display: grid; gap: 48px; align-items: center; }
+@media (min-width: 940px) { .split { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 72px; } }
+.steps { counter-reset: s; list-style: none; padding: 0; margin: 28px 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 44px; margin-bottom: 14px; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; background: var(--ink); color: var(--bg); }
+.support { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; margin: 28px 0 0; padding: 0; list-style: none; font-size: 0.93rem; }
+.support li { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.support svg { width: 18px; height: 18px; flex: none; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.yes svg { stroke: #2f7d3a; } .no svg { stroke: var(--muted); } .partly svg { stroke: #a86b00; }
+@media (prefers-color-scheme: dark) { .yes svg { stroke: #62c072; } .partly svg { stroke: #e0a640; } .brand svg rect:first-child { fill: #3a3833; } }
+.phone { margin: 0 auto; max-width: 420px; width: 100%; }
+.phone .frame { border-radius: 22px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow), 0 30px 60px -20px rgba(30, 20, 0, .25); }
+.phone figcaption { text-align: center; font-size: 0.88rem; color: var(--muted); margin-top: 14px; }
+details { margin-top: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+summary { cursor: pointer; padding: 14px 18px; font-weight: 600; }
+details > div { padding: 0 18px 18px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); }
+td code { white-space: nowrap; }
+
+/* Hardware */
+.hw { display: grid; gap: 40px; }
+@media (min-width: 900px) { .hw { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; } }
+.parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.parts li { display: flex; gap: 16px; align-items: flex-start; }
+.parts .icon { margin: 0; flex: none; }
+.parts b { display: block; }
+.parts span { color: var(--muted); font-size: 0.95rem; }
+.specs { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); align-content: start; font-size: 0.95rem; }
+.specs dt, .specs dd { margin: 0; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.specs dt { color: var(--muted); padding-right: 20px; }
+@media (max-width: 520px) {
+    .specs { grid-template-columns: minmax(0, 1fr); }
+    .specs dt { border: 0; padding-bottom: 0; font-size: 0.85rem; }
+    .specs dd { padding-top: 2px; }
+}
+
+/* Getting started */
+.start { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; counter-reset: g; list-style: none; padding: 0; margin: 0; }
+@media (min-width: 900px) { .start { grid-template-columns: repeat(3, minmax(0, 1fr)); } .start li:first-child { grid-column: 1 / -1; } }
+.start li { counter-increment: g; display: flex; flex-direction: column; gap: 12px; }
+.start h3::before { content: counter(g, decimal-leading-zero); color: var(--accent); font-family: var(--mono); font-size: 0.85rem; margin-right: 10px; }
+.start p { color: var(--muted); font-size: 0.95rem; margin: 0; }
+.start .card { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.code { margin-top: auto; background: var(--code-bg); border-radius: 12px; overflow: hidden; }
+.code-bar { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 8px 0 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08); font: 0.75rem var(--mono); color: #a8a397; }
+.code pre { border-radius: 0; }
+.copy { font: 600 0.75rem var(--sans); color: var(--code-ink); background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.copy:hover { background: rgba(255, 255, 255, .16); }
+.copy:focus-visible { outline-offset: 1px; }
+.nw { white-space: nowrap; }
+.more { margin-top: 32px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+
+/* Footer */
+.site-foot { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.92rem; }
+.site-foot .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; justify-content: space-between; }
+.site-foot nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-head">
+    <div class="wrap">
+        <a class="brand" href="#top" aria-label="e-Paper BLE Thermometer, back to top">
+            <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="6" fill="#222224"/><rect x="6" y="6" width="20" height="18" rx="1.5" fill="#ecebe3"/><path d="M8 19l4-5 3 3 4-6 3 4" fill="none" stroke="#222224" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>e-Paper Thermometer</span>
+        </a>
+        <nav class="nav" aria-label="Sections">
+            <a href="#features">Features</a>
+            <a href="#layouts">Layouts</a>
+            <a href="#how">How it works</a>
+            <a href="#clock">Clock</a>
+            <a href="#hardware">Hardware</a>
+            <a href="#start">Get started</a>
+        </nav>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz">GitHub</a>
+    </div>
+</header>
+
+<main id="main">
+    <div class="hero" id="top">
+        <div class="wrap">
+            <p class="eyebrow">ESP32-S3 &middot; e-paper &middot; Bluetooth LE</p>
+            <h1>Your outdoor thermometer, on calm e-paper.</h1>
+            <p class="lede">Open-source firmware for the Waveshare ESP32-S3-ePaper-1.54. It shows a Govee BLE thermometer
+                with a 24-hour trend, keeps real time, logs to a micro SD card and runs on the board's battery:
+                awake for a couple of seconds each minute, asleep for the rest.</p>
+            <div class="actions">
+                <a class="btn btn-primary" href="./app/">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    Set the clock</a>
+                <a class="btn btn-ghost" href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz">View on GitHub</a>
+            </div>
+            <div class="hero-art">
+                <img src="images/hero.png" width="1580" height="570" fetchpriority="high"
+                     alt="Three e-paper devices side by side. Left, the trend layout: 14:47, 9.8 degrees, 24-hour high 11.9 and low 3.7, a temperature curve, 71.6 percent humidity and 81 percent battery. Middle, the clock layout: a large 14:47, outdoor 9.8 degrees and indoor 21.5 degrees with battery levels. Right, the focus layout: a large 9.8 degrees Celsius with signal bars, humidity and battery.">
+            </div>
+            <div class="stats" role="list">
+                <div role="listitem"><b>200&times;200</b><span>black/white e-paper</span></div>
+                <div role="listitem"><b>1.5&ndash;2.7&nbsp;s</b><span>awake per minute, measured</span></div>
+                <div role="listitem"><b>~0.75&nbsp;s</b><span>partial refresh</span></div>
+                <div role="listitem"><b>24&nbsp;h</b><span>trend in 10-min steps</span></div>
+            </div>
+        </div>
+    </div>
+
+    <section id="features" class="band" aria-labelledby="features-h">
+        <div class="wrap">
+            <div class="section-head">
+                <p class="eyebrow">Features</p>
+                <h2 id="features-h">Everything on one small board</h2>
+                <p class="lede">The Waveshare board already carries the panel, a real-time clock, an indoor sensor, a battery
+                    connection and a card slot. The firmware puts all of them to work, with no extra wiring.</p>
+            </div>
+            <div class="grid">
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/><path d="M12 9v8"/></svg></div>
+                    <h3>Govee BLE sensor</h3>
+                    <p>Decodes temperature, humidity, battery and signal of a GV5171 / H5171. Its address is remembered, so a reading usually arrives in about a second.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></div>
+                    <h3>Deep sleep every minute</h3>
+                    <p>Wakes 3 s after each full minute, scans, refreshes the panel and sleeps again. Measured awake time: about 1.5&ndash;2.7 s.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                    <h3>A real clock</h3>
+                    <p>The on-board PCF85063A keeps UTC on battery, even with the board switched off. A POSIX time zone handles daylight saving.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16l5-6 4 4 4-5"/><path d="M19 5.5v.01"/><path d="M3 20h18"/></svg></div>
+                    <h3>24-hour trend</h3>
+                    <p>High, low and a curve in 10-minute steps, kept in RTC memory through deep sleep. Gaps without readings stay empty.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg></div>
+                    <h3>Indoor, too</h3>
+                    <p>The on-board SHTC3 measures the room temperature. The Clock layout shows it next to the outdoor reading.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 10.5v3M9.5 10.5v3"/></svg></div>
+                    <h3>Board battery gauge</h3>
+                    <p>Reads the LiPo via ADC (GPIO4, 1:2 divider) right after waking, before the radio starts and pulls the voltage down.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l4 4v13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M11 3v4M14 3v4M17 4.5V7"/></svg></div>
+                    <h3>Hourly CSV log</h3>
+                    <p>One row per hour on a FAT32 micro SD card, one file per month. No card? It fails within milliseconds and retries next hour.</p>
+                </article>
+                <article class="card">
+                    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg></div>
+                    <h3>Clock set from the browser</h3>
+                    <p>A single-file Web Bluetooth page writes time zone and UTC time over a small GATT service, then reads both back.</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section id="layouts" aria-labelledby="layouts-h">
+        <div class="wrap">
+            <div class="section-head">
+                <p class="eyebrow">Layouts</p>
+                <h2 id="layouts-h">Three ways to read the weather</h2>
+                <p class="lede">Hold the BOOT button for a second to switch layouts. The device labels are German:
+                    <em>AUSSEN</em> is outdoor, <em>INNEN</em> is indoor, <em>jetzt</em> is now.</p>
+            </div>
+            <div class="layouts">
+                <figure class="device">
+                    <div class="shot"><img src="images/layout-trend.png" width="540" height="570" loading="lazy"
+                        alt="Trend layout: time 14:47, 9.8 degrees, 24-hour high 11.9 and low 3.7, a curve from minus 24 hours to now with a gap, 71.6 percent humidity and 81 percent sensor battery."></div>
+                    <figcaption><strong>Trend <span class="tag">default</span></strong>Time, temperature, 24&nbsp;h high and low, the 24&nbsp;h curve, humidity and sensor battery.</figcaption>
+                </figure>
+                <figure class="device">
+                    <div class="shot"><img src="images/layout-focus.png" width="540" height="570" loading="lazy"
+                        alt="Focus layout: time 14:47 with signal bars, a large 9.8 degrees Celsius, 71.6 percent humidity and 81 percent sensor battery."></div>
+                    <figcaption><strong>Focus</strong>One big temperature in 72&nbsp;px digits, signal bars, humidity and sensor battery.</figcaption>
+                </figure>
+                <figure class="device">
+                    <div class="shot"><img src="images/layout-clock.png" width="540" height="570" loading="lazy"
+                        alt="Clock layout: a large 14:47, below it AUSSEN 9.8 degrees with 81 percent sensor battery and INNEN 21.5 degrees with 78 percent board battery."></div>
+                    <figcaption><strong>Clock</strong>The time in 60&nbsp;px digits, outdoor temperature with sensor battery, indoor temperature with board battery.</figcaption>
+                </figure>
+                <figure class="device alt">
+                    <div class="shot"><img src="images/layout-setup.png" width="540" height="570" loading="lazy"
+                        alt="Clock layout right after power-up: the time shows dashes because the clock is not set yet, and a Bluetooth symbol marks the open setup window."></div>
+                    <figcaption><strong>Setup window</strong>Right after power-up: <code>--:--</code> until the clock is set, and the Bluetooth symbol while the clock service is open.</figcaption>
+                </figure>
+            </div>
+            <ul class="keys" aria-label="BOOT button">
+                <li><span class="press">tap</span><div><b>Rotate</b><span>Turns the UI another 90&deg; clockwise.</span></div></li>
+                <li><span class="press">1&nbsp;s</span><div><b>Next layout</b><span>Trend, Focus, Clock, and around again.</span></div></li>
+                <li><span class="press">5&nbsp;s</span><div><b>Setup window</b><span>Hold, then release while it sleeps: set the clock or flash.</span></div></li>
+            </ul>
+            <p class="note">A press wakes the board from deep sleep. Rotation and layout are stored in flash (NVS).
+                All screen images on this page are rendered from the firmware's own UI code (<code>display_ui.c</code>) on a computer, not photographed.</p>
+        </div>
+    </section>
+
+    <section id="how" class="band" aria-labelledby="how-h">
+        <div class="wrap">
+            <div class="section-head">
+                <p class="eyebrow">How it works</p>
+                <h2 id="how-h">A minute in the life of the display</h2>
+                <p class="lede">After a five-minute setup window the board settles into a simple rhythm, aligned to the wall clock.</p>
+            </div>
+            <figure class="minute" aria-labelledby="minute-cap">
+                <div class="bar" aria-hidden="true"><span class="awake"></span><span class="sleep"><span>deep sleep &asymp; 57&nbsp;s</span></span></div>
+                <div class="ticks" aria-hidden="true"><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span>:00</span></div>
+                <figcaption id="minute-cap" class="legend">
+                    <span><i></i>Awake from :03, about 1.5&ndash;2.7&nbsp;s (measured)</span>
+                    <span><i class="off"></i>Deep sleep until 3&nbsp;s after the next minute</span>
+                </figcaption>
+            </figure>
+            <div class="how">
+                <ol class="timeline">
+                    <li><span class="when">hh:mm:03</span><h3>Wake</h3>
+                        <p>Three seconds after every full minute, so the display never shows the previous one. While the clock is unset it keeps a steady 60&nbsp;s rhythm.</p></li>
+                    <li><span class="when">right away</span><h3>Measure on board</h3>
+                        <p>Indoor temperature from the SHTC3 and the board battery, before the radio adds load.</p></li>
+                    <li><span class="when">&le; 8 s, typically ~1 s</span><h3>Listen for the sensor</h3>
+                        <p>The scan stops at the first advertisement from the remembered sensor address. Without one, the last values stay on screen.</p></li>
+                    <li><span class="when">~0.75 s</span><h3>Radio off, refresh</h3>
+                        <p>A partial e-paper refresh. Every 15th time a full refresh (~1.85&nbsp;s) clears any ghosting.</p></li>
+                    <li><span class="when">once per hour</span><h3>Log</h3>
+                        <p>The first cycle of each hour appends a CSV row to the SD card.</p></li>
+                    <li><span class="when">until next minute</span><h3>Sleep</h3>
+                        <p>The panel controller sleeps, its supply is cut, the battery latch (GPIO17) is held, and the ESP32-S3 enters deep sleep.</p></li>
+                </ol>
+                <div class="stack">
+                    <div class="card callout">
+                        <h3>Setup window after power-up</h3>
+                        <ul>
+                            <li>Five minutes awake with the BLE clock service <code class="nw">EPD-Uhr</code> advertised.</li>
+                            <li>Continuous sensor scan. Redraws on a new minute, a button press or a clock change; new readings at most every 15&nbsp;s.</li>
+                            <li>If the web page is still connected at the end, it waits up to 2 more minutes.</li>
+                            <li>The USB port stays up: the easiest moment to flash.</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h3>What lands on the card</h3>
+                        <p class="small" style="margin: 8px 0 14px">FAT32, one file per month: <code class="nw">/sdcard/YYYY-MM.csv</code>. Rows need a set clock and a reading from the last 10 minutes.</p>
+                        <pre tabindex="0" aria-label="Example CSV file" style="white-space: pre-wrap"><code>local_time,<wbr>utc_epoch,<wbr>temperature_c,<wbr>humidity_pct,<wbr>sensor_battery_pct,<wbr>rssi_dbm
+2026-11-05 14:00:12,<wbr>1793883612,<wbr>12.26,<wbr>63.7,<wbr>62,<wbr>-86</code></pre>
+                    </div>
+                    <p class="small muted">Last values, the 24&nbsp;h history and the previous frame for partial refreshes live in RTC memory: they survive deep sleep, but not a power cycle. Deep-sleep current and battery life have not been measured yet.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="clock" aria-labelledby="clock-h">
+        <div class="wrap split">
+            <div>
+                <p class="eyebrow">Clock app</p>
+                <h2 id="clock-h">Set the clock from your browser</h2>
+                <p class="lede">No app store, no account. One web page talks to the display over Web Bluetooth,
+                    sends your time zone and the exact time, then reads both back to verify.</p>
+                <ol class="steps">
+                    <li>Switch the board on, or hold BOOT for 5&nbsp;s and release. The Bluetooth symbol appears.</li>
+                    <li>Open the clock app and press <strong>Verbinden</strong> (connect).</li>
+                    <li>Pick <strong>EPD-Uhr</strong> in the browser's device list.</li>
+                    <li>Press <strong>Uhrzeit übertragen</strong> (send time). Done in a few seconds.</li>
+                </ol>
+                <a class="btn btn-primary btn-lg" href="./app/">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg>
+                    Open the clock app</a>
+                <ul class="support" aria-label="Browser support">
+                    <li class="yes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Chrome, Edge on desktop</li>
+                    <li class="yes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Chrome on Android</li>
+                    <li class="partly"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v9M12 18.5v.5"/></svg>iPhone, iPad: Bluefy app only</li>
+                    <li class="no"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Safari, Firefox</li>
+                </ul>
+                <p class="small muted" style="margin-top: 16px">Web Bluetooth needs a secure context. This site is served over HTTPS;
+                    locally, <code>http://localhost</code> works too. The app's interface is in German.</p>
+                <details>
+                    <summary>GATT clock service</summary>
+                    <div>
+                        <table>
+                            <thead><tr><th scope="col">Characteristic</th><th scope="col">UUID</th><th scope="col">Format</th></tr></thead>
+                            <tbody>
+                                <tr><td>service</td><td><code>7a6b1000-3c2d-4e5f-9a8b-1c2d3e4f5a6b</code></td><td></td></tr>
+                                <tr><td>time</td><td><code>7a6b1001-3c2d-4e5f-9a8b-1c2d3e4f5a6b</code></td><td>read/write, uint64 LE, Unix seconds UTC</td></tr>
+                                <tr><td>time zone</td><td><code>7a6b1002-3c2d-4e5f-9a8b-1c2d3e4f5a6b</code></td><td>read/write, POSIX TZ string, 1&ndash;48 ASCII bytes</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="small muted" style="margin: 12px 0 0">The page writes the time zone first (default Europe/Berlin,
+                            <code>CET-1CEST,M3.5.0,M10.5.0/3</code>), then the UTC time at the start of a full second.
+                            The RTC keeps UTC and runs from the battery even while the board is off.</p>
+                    </div>
+                </details>
+            </div>
+            <figure class="phone">
+                <div class="frame">
+                    <picture>
+                        <source srcset="images/webapp-dark.png" media="(prefers-color-scheme: dark)">
+                        <img src="images/webapp-light.png" width="900" height="1372" loading="lazy"
+                             alt="The clock web app: this device's time 17:57 with the date, the detected zone Europe/Berlin, a time zone picker set to Berlin, the POSIX string to send, and a Thermometer card with the buttons Verbinden, Uhrzeit übertragen and Trennen.">
+                    </picture>
+                </div>
+                <figcaption>The clock app, before connecting.</figcaption>
+            </figure>
+        </div>
+    </section>
+
+    <section id="hardware" class="band" aria-labelledby="hardware-h">
+        <div class="wrap">
+            <div class="section-head">
+                <p class="eyebrow">Hardware</p>
+                <h2 id="hardware-h">What you need</h2>
+                <p class="lede">The board, the sensor, a battery and a <span class="nw">USB-C</span> cable. Display, clock, indoor sensor and card slot are already on the board.</p>
+            </div>
+            <div class="hw">
+                <ul class="parts">
+                    <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="6.5" y="6.5" width="11" height="9" rx="1"/></svg></div>
+                        <div><b>Waveshare ESP32-S3-ePaper-1.54</b><span>Tested on V2; V1 should run the same binary (untested). Brings the panel, RTC, SHTC3, battery connection and micro SD slot.</span></div></li>
+                    <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/></svg></div>
+                        <div><b>Govee thermometer GV5171 / H5171</b><span>Found by its advertised name (contains <code>GV5171</code>, configurable).</span></div></li>
+                    <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></svg></div>
+                        <div><b>LiPo battery</b><span>The board runs from it. The firmware holds the power latch (GPIO17) through deep sleep and reads the voltage on GPIO4.</span></div></li>
+                    <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l4 4v13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M11 3v4M14 3v4"/></svg></div>
+                        <div><b>micro SD card (optional)</b><span>FAT32, for the hourly CSV log.</span></div></li>
+                    <li class="card"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2v4M15 2v4"/><path d="M6 6h12v4a6 6 0 0 1-12 0z"/><path d="M12 16v6"/></svg></div>
+                        <div><b>USB-C cable</b><span>For flashing and the serial log.</span></div></li>
+                </ul>
+                <div>
+                    <dl class="specs" aria-label="Technical details">
+                        <dt>Display</dt><dd>1.54&Prime; 200&times;200 black/white e-paper, GDEY0154D67 (SSD1681)</dd>
+                        <dt>Partial / full refresh</dt><dd>~0.75&nbsp;s / ~1.85&nbsp;s, full every 15th refresh</dd>
+                        <dt>Clock</dt><dd>PCF85063A RTC, kept in UTC</dd>
+                        <dt>Sensors</dt><dd>Govee via BLE advertisements, on-board SHTC3, board battery on GPIO4</dd>
+                        <dt>Firmware</dt><dd>ESP-IDF v5.5.2+, NimBLE (observer + peripheral)</dd>
+                        <dt>Graphics</dt><dd>LVGL 9.6 into a 1-bpp framebuffer with software rotation; 60/72&nbsp;px digit fonts generated from Montserrat Medium</dd>
+                        <dt>Memory</dt><dd>No PSRAM, so one binary targets V1 and V2; 3&nbsp;MB app partition</dd>
+                    </dl>
+                    <p class="small muted" style="margin: 20px 0 0">No extra wiring: every connection is on the board.
+                        The full pin map is in the <a href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz#hardware">README</a>.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="start" aria-labelledby="start-h">
+        <div class="wrap">
+            <div class="section-head">
+                <p class="eyebrow">Getting started</p>
+                <h2 id="start-h">From clone to e&#8209;paper in four steps</h2>
+                <p class="lede">You need ESP-IDF v5.5.2 or newer. The setup script (written for macOS) installs it to <code>~/esp/esp-idf</code> if it is missing.</p>
+            </div>
+            <ol class="start">
+                <li><div class="card"><h3>Clone</h3><p>Get the firmware, the clock app and the host tests.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>git clone https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz.git
+cd waveshare-esp32-s3-ble-temp-viz</code></pre></div></div></li>
+                <li><div class="card"><h3>Set up</h3><p>One-time ESP-IDF install, about 1&nbsp;GB of downloads.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/setup.sh</code></pre></div></div></li>
+                <li><div class="card"><h3>Build</h3><p>Or run <code>idf.py build</code> with the ESP-IDF environment sourced.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/build.sh</code></pre></div></div></li>
+                <li><div class="card"><h3>Flash</h3><p>In deep sleep the USB port is gone. The script waits up to 70&nbsp;s for a wake and flashes with esptool.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/flash.sh</code></pre></div></div></li>
+            </ol>
+            <div class="more">
+                <div class="card"><h3>Watch the log</h3>
+                    <p style="margin: 8px 0 14px">Waits for the next wake and follows the log with <code class="nw">--no-reset</code>, so the board is not restarted. The port reappears on every wake.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/monitor.sh</code></pre></div></div>
+                <div class="card"><h3>Run the host tests</h3>
+                    <p style="margin: 8px 0 14px">Govee decoder, history buffer, date and BCD math, CSV rows, SHTC3 and battery math. No ESP toolchain needed.</p>
+                    <div class="code"><div class="code-bar"><span>shell</span></div><pre tabindex="0"><code>./scripts/test_govee.sh</code></pre></div></div>
+            </div>
+            <p class="note">Sensor name, refresh cadence, setup window, BLE name and default time zone are in
+                <code class="nw">idf.py menuconfig</code> under <em>E-paper display application</em>. Then open the
+                <a href="./app/">clock app</a> and set the time.</p>
+        </div>
+    </section>
+</main>
+
+<footer class="site-foot">
+    <div class="wrap">
+        <div>
+            <p style="margin: 0">MIT License &middot; &copy; 2026 Matthias Schaff</p>
+            <p class="small" style="margin: 4px 0 0">An independent hobby project, not affiliated with Waveshare or Govee.</p>
+        </div>
+        <nav aria-label="Footer">
+            <a href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz">Source on GitHub</a>
+            <a href="https://github.com/matsch82/waveshare-esp32-s3-ble-temp-viz/blob/main/LICENSE">License</a>
+            <a href="./app/">Clock app</a>
+        </nav>
+    </div>
+</footer>
+
+<script>
+// Copy buttons for the code blocks; skipped where the Clipboard API is missing (e.g. plain http).
+if (navigator.clipboard && window.isSecureContext) {
+    document.querySelectorAll('.code').forEach((box) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy';
+        btn.setAttribute('aria-label', 'Copy command');
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', () => {
+            navigator.clipboard.writeText(box.querySelector('code').textContent).then(() => {
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+            }, () => { btn.textContent = 'Failed'; });
+        });
+        box.querySelector('.code-bar').append(btn);
+    });
+}
+</script>
+</body>
+</html>
