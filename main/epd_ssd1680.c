@@ -117,7 +117,9 @@ static void epd_wait_idle(void)
             ESP_LOGE(TAG, "BUSY still high after %d ms, continuing", EPD_BUSY_TIMEOUT_MS);
             return;
         }
-        vTaskDelay(pdMS_TO_TICKS(1));
+        /* Long enough for automatic light sleep between polls (a refresh
+           takes 0.75-1.85 s, so 10 ms of latency does not matter). */
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 

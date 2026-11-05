@@ -13,7 +13,8 @@ bool sdlog_month_path(char *buf, size_t len, time_t now)
     return n >= 0 && (size_t)n < len;
 }
 
-int sdlog_format_row(char *buf, size_t len, const reading_t *r, time_t now)
+int sdlog_format_row(char *buf, size_t len, const reading_t *r,
+                     const sdlog_board_t *board, time_t now)
 {
     struct tm tm;
     if (!localtime_r(&now, &tm)) return -1;
@@ -22,11 +23,19 @@ int sdlog_format_row(char *buf, size_t len, const reading_t *r, time_t now)
     if (r->battery >= 0) {
         snprintf(battery, sizeof battery, "%d", r->battery);
     }
+    char indoor[16] = "";
+    if (board->indoor_valid) {
+        snprintf(indoor, sizeof indoor, "%.2f", board->indoor_temp_c);
+    }
+    char board_mv[12] = "";
+    if (board->battery_mv >= 0) {
+        snprintf(board_mv, sizeof board_mv, "%d", board->battery_mv);
+    }
 
-    int n = snprintf(buf, len, "%04d-%02d-%02d %02d:%02d:%02d,%lld,%.2f,%.1f,%s,%d",
+    int n = snprintf(buf, len, "%04d-%02d-%02d %02d:%02d:%02d,%lld,%.2f,%.1f,%s,%d,%s,%s",
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                      tm.tm_hour, tm.tm_min, tm.tm_sec, (long long)now,
-                     r->temp_c, r->humidity, battery, r->rssi);
+                     r->temp_c, r->humidity, battery, r->rssi, indoor, board_mv);
     if (n < 0 || (size_t)n >= len) return -1;
     return n;
 }

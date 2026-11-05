@@ -18,8 +18,8 @@ if [ -z "${PORT}" ]; then
 fi
 if [ -z "${PORT}" ]; then
     # In the deep-sleep cycle the USB port only exists while the board is awake.
-    echo "Waiting up to 70 s for the board to wake up ..."
-    for _ in $(seq 1 1400); do
+    echo "Waiting up to 310 s (one wake interval) for the board to wake up ..."
+    for _ in $(seq 1 6200); do
         PORT=$(find_port)
         [ -n "${PORT}" ] && break
         sleep 0.05

@@ -134,6 +134,17 @@ bool board_init(void)
         ESP_LOGE(TAG, "GPIO config failed: %s", esp_err_to_name(err));
         return false;
     }
+
+    /* ESP-IDF isolates every GPIO during automatic light sleep (its ESD
+       reset workaround). These must keep driving through it: the latch, or
+       the board switches off on battery, and the panel rail and lines, or the
+       panel loses power or its RST/CS mid-refresh. Call before power
+       management enables light sleep. */
+    for (int gpio = 0; gpio < 64; gpio++) {
+        if ((LATCH_MASK | PWR_EN_MASK | EPD_OUT_MASK) & (1ULL << gpio)) {
+            gpio_sleep_sel_dis((gpio_num_t)gpio);
+        }
+    }
     return true;
 }
 

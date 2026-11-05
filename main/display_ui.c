@@ -15,15 +15,14 @@
 #define TAG "ui"
 
 #if !LV_FONT_MONTSERRAT_12 || !LV_FONT_MONTSERRAT_14 || !LV_FONT_MONTSERRAT_16 || \
-    !LV_FONT_MONTSERRAT_18 || !LV_FONT_MONTSERRAT_20 || !LV_FONT_MONTSERRAT_32 || \
-    !LV_FONT_MONTSERRAT_48
+    !LV_FONT_MONTSERRAT_18 || !LV_FONT_MONTSERRAT_20 || !LV_FONT_MONTSERRAT_48
 #error "UI fonts missing: delete sdkconfig so sdkconfig.defaults is applied again"
 #endif
 
 LV_FONT_DECLARE(font_digits_72);
-LV_FONT_DECLARE(font_digits_60);
 
-#define CLOCK_PLACEHOLDER "--:--"
+/* Time of the last sensor reading, when it is not known (yet). */
+#define TIME_PLACEHOLDER "--:--"
 
 /* Trend layout: chart area and the baseline of the big number in the
    focus layout, in logical (unrotated) pixels. */
@@ -34,10 +33,9 @@ LV_FONT_DECLARE(font_digits_60);
 #define DOT_SIZE      8
 #define FOCUS_BASELINE 104
 #define FOCUS_UNIT_GAP 2
-/* Clock layout: baseline of HH:MM and the top of the two value rows. */
-#define CLOCK_BASELINE 60
-#define CLOCK_ROW_OUT  80
-#define CLOCK_ROW_IN   142
+/* Outdoor/indoor layout: top of the two rows. */
+#define DUAL_ROW_OUT   8
+#define DUAL_ROW_IN    110
 
 typedef struct {
     lv_obj_t *fill;
@@ -50,7 +48,7 @@ static lv_obj_t *s_layout_root[DISPLAY_UI_LAYOUT_COUNT];
 static display_ui_layout_t s_layout = DISPLAY_UI_LAYOUT_TREND;
 
 /* Trend layout */
-static lv_obj_t *s_t_clock, *s_t_ble;
+static lv_obj_t *s_t_time, *s_t_ble, *s_t_axis_end;
 static lv_obj_t *s_t_temp, *s_t_max, *s_t_min, *s_t_hum, *s_t_batt;
 static lv_obj_t *s_t_chart, *s_t_dot;
 static lv_chart_series_t *s_t_series;
@@ -58,15 +56,15 @@ static battery_widget_t s_t_batt_icon;
 static int32_t s_chart_vals[HISTORY_SLOTS];
 
 /* Focus layout */
-static lv_obj_t *s_f_clock, *s_f_ble;
+static lv_obj_t *s_f_time, *s_f_ble;
 static lv_obj_t *s_f_temp, *s_f_unit, *s_f_hum, *s_f_batt;
 static lv_obj_t *s_f_bars[4];
 static battery_widget_t s_f_batt_icon;
 
-/* Clock layout: one row outdoors (sensor), one row indoors (board). */
-static lv_obj_t *s_c_time, *s_c_ble;
-static lv_obj_t *s_c_out_temp, *s_c_out_batt, *s_c_in_temp, *s_c_in_batt;
-static battery_widget_t s_c_out_batt_icon, s_c_in_batt_icon;
+/* Outdoor/indoor layout: one row for the sensor, one for the board. */
+static lv_obj_t *s_d_time, *s_d_ble;
+static lv_obj_t *s_d_out_temp, *s_d_out_batt, *s_d_in_temp, *s_d_in_batt;
+static battery_widget_t s_d_out_batt_icon, s_d_in_batt_icon;
 
 /* LVGL 9 full-screen RGB565 render buffer (200x200x2 = 80 kB). */
 static uint8_t *s_draw_buf = NULL;
@@ -74,9 +72,11 @@ static uint8_t *s_draw_buf = NULL;
 /* Clockwise quarter turns applied in fb_flush(). */
 static uint8_t s_rotation = DISPLAY_UI_ROTATION_DEFAULT;
 
-static void lvgl_tick_cb(void *arg)
+/* LVGL reads the time on demand: a periodic tick timer would wake the CPU
+   every few ms and keep it out of light sleep. */
+static uint32_t lvgl_tick_ms(void)
 {
-    lv_tick_inc((uint32_t)(uintptr_t)arg);
+    return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
 static void fb_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -214,18 +214,18 @@ static lv_obj_t *make_layout_root(void)
 
 static void create_trend_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
 {
-    s_t_clock = make_label(root, &lv_font_montserrat_14, CLOCK_PLACEHOLDER);
-    lv_obj_set_pos(s_t_clock, 12, 3);
+    s_t_temp = make_label(root, &lv_font_montserrat_48, "--.-°");
+    lv_obj_set_pos(s_t_temp, 8, 0);
+    /* When the reading was received, small below the temperature. */
+    s_t_time = make_label(root, &lv_font_montserrat_14, TIME_PLACEHOLDER);
+    lv_obj_set_pos(s_t_time, 12, 54);
     s_t_ble = make_label(root, &lv_font_montserrat_14, LV_SYMBOL_BLUETOOTH);
     lv_obj_set_hidden(s_t_ble, true);
 
-    s_t_temp = make_label(root, &lv_font_montserrat_48, "--.-°");
-    lv_obj_set_pos(s_t_temp, 8, 20);
-
     s_t_max = make_label(root, &lv_font_montserrat_14, LV_SYMBOL_UP " --");
-    lv_obj_align(s_t_max, LV_ALIGN_TOP_RIGHT, -12, 28);
+    lv_obj_align(s_t_max, LV_ALIGN_TOP_RIGHT, -12, 10);
     s_t_min = make_label(root, &lv_font_montserrat_14, LV_SYMBOL_DOWN " --");
-    lv_obj_align(s_t_min, LV_ALIGN_TOP_RIGHT, -12, 50);
+    lv_obj_align(s_t_min, LV_ALIGN_TOP_RIGHT, -12, 32);
 
     /* Dotted baseline under the curve. */
     static lv_point_precise_t base_pts[] = {
@@ -258,8 +258,9 @@ static void create_trend_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
 
     lv_obj_t *from = make_label(root, &lv_font_montserrat_12, "-24 h");
     lv_obj_set_pos(from, CHART_X, 142);
-    lv_obj_t *to = make_label(root, &lv_font_montserrat_12, "jetzt");
-    lv_obj_align(to, LV_ALIGN_TOP_RIGHT, -12, 142);
+    /* Labelled with the reading's time while the curve ends at it. */
+    s_t_axis_end = make_label(root, &lv_font_montserrat_12, "jetzt");
+    lv_obj_align(s_t_axis_end, LV_ALIGN_TOP_RIGHT, -12, 142);
 
     make_rect(root, 12, 160, 176, 2, 0);
 
@@ -274,9 +275,8 @@ static void create_trend_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
 
 static void create_focus_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
 {
-    s_f_clock = make_label(root, &lv_font_montserrat_18, CLOCK_PLACEHOLDER);
-    lv_obj_set_pos(s_f_clock, 14, 7);
     s_f_ble = make_label(root, &lv_font_montserrat_18, LV_SYMBOL_BLUETOOTH);
+    lv_obj_set_pos(s_f_ble, 14, 7);
     lv_obj_set_hidden(s_f_ble, true);
 
     /* Signal strength: four bars growing to the right, bottom-aligned. */
@@ -287,6 +287,9 @@ static void create_focus_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
 
     s_f_temp = make_label(root, &font_digits_72, "--.-");
     s_f_unit = make_label(root, &lv_font_montserrat_20, "°C");
+    /* When the reading was received, small below the temperature. */
+    s_f_time = make_label(root, &lv_font_montserrat_16, TIME_PLACEHOLDER);
+    lv_obj_align(s_f_time, LV_ALIGN_TOP_MID, 0, FOCUS_BASELINE + 10);
 
     make_rect(root, 16, 140, 168, 2, 0);
 
@@ -299,35 +302,34 @@ static void create_focus_layout(lv_obj_t *root, const lv_image_dsc_t *droplet)
     lv_obj_align(s_f_batt, LV_ALIGN_TOP_RIGHT, -54, 160);
 }
 
-/* Label, temperature and battery of one row in the clock layout. */
-static void create_clock_row(lv_obj_t *root, int32_t y, const char *title,
-                             lv_obj_t **temp, lv_obj_t **batt, battery_widget_t *icon)
+/* Label with the battery on the right, and the temperature below. */
+static void create_dual_row(lv_obj_t *root, int32_t y, const char *title, lv_obj_t **title_out,
+                            lv_obj_t **temp, lv_obj_t **batt, battery_widget_t *icon)
 {
     lv_obj_t *label = make_label(root, &lv_font_montserrat_12, title);
     lv_obj_set_style_text_letter_space(label, 1, 0);
-    lv_obj_set_pos(label, 12, y);
-    *temp = make_label(root, &lv_font_montserrat_32, "--.-°");
-    lv_obj_set_pos(*temp, 10, y + 14);
-    *icon = make_battery(root, 158, y + 26, 27, 14);
+    lv_obj_set_pos(label, 12, y + 2);
+    if (title_out) *title_out = label;
+    *icon = make_battery(root, 158, y + 2, 27, 14);
     *batt = make_label(root, &lv_font_montserrat_16, "--%");
-    lv_obj_align(*batt, LV_ALIGN_TOP_RIGHT, -48, y + 24);
+    lv_obj_align(*batt, LV_ALIGN_TOP_RIGHT, -48, y);
+    *temp = make_label(root, &lv_font_montserrat_48, "--.-°");
+    lv_obj_set_pos(*temp, 8, y + 16);
 }
 
-static void create_clock_layout(lv_obj_t *root)
+static void create_dual_layout(lv_obj_t *root)
 {
-    const lv_font_t *big = &font_digits_60;
-    s_c_time = make_label(root, big, CLOCK_PLACEHOLDER);
-    lv_obj_align(s_c_time, LV_ALIGN_TOP_MID, 0, CLOCK_BASELINE - (big->line_height - big->base_line));
-    /* Next to the AUSSEN label: the corner above may hold the last digit. */
-    s_c_ble = make_label(root, &lv_font_montserrat_14, LV_SYMBOL_BLUETOOTH);
-    lv_obj_align(s_c_ble, LV_ALIGN_TOP_RIGHT, -14, CLOCK_ROW_OUT - 2);
-    lv_obj_set_hidden(s_c_ble, true);
-
-    make_rect(root, 12, CLOCK_ROW_OUT - 8, 176, 2, 0);
-    create_clock_row(root, CLOCK_ROW_OUT, "AUSSEN", &s_c_out_temp, &s_c_out_batt, &s_c_out_batt_icon);
+    lv_obj_t *out_label;
+    create_dual_row(root, DUAL_ROW_OUT, "AUSSEN", &out_label,
+                    &s_d_out_temp, &s_d_out_batt, &s_d_out_batt_icon);
+    s_d_ble = make_label(root, &lv_font_montserrat_14, LV_SYMBOL_BLUETOOTH);
+    lv_obj_align_to(s_d_ble, out_label, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+    lv_obj_set_hidden(s_d_ble, true);
+    /* When the reading was received, small right of the temperature. */
+    s_d_time = make_label(root, &lv_font_montserrat_14, TIME_PLACEHOLDER);
 
     static lv_point_precise_t sep_pts[] = {
-        {12, CLOCK_ROW_IN - 6}, {188, CLOCK_ROW_IN - 6},
+        {12, DUAL_ROW_IN - 10}, {188, DUAL_ROW_IN - 10},
     };
     lv_obj_t *sep = lv_line_create(root);
     lv_line_set_points(sep, sep_pts, 2);
@@ -335,7 +337,8 @@ static void create_clock_layout(lv_obj_t *root)
     lv_obj_set_style_line_color(sep, lv_color_black(), 0);
     lv_obj_set_style_line_dash_width(sep, 2, 0);
     lv_obj_set_style_line_dash_gap(sep, 3, 0);
-    create_clock_row(root, CLOCK_ROW_IN, "INNEN", &s_c_in_temp, &s_c_in_batt, &s_c_in_batt_icon);
+    create_dual_row(root, DUAL_ROW_IN, "INNEN", NULL,
+                    &s_d_in_temp, &s_d_in_batt, &s_d_in_batt_icon);
 }
 
 bool display_ui_create_layout(void)
@@ -364,16 +367,7 @@ bool display_ui_create_layout(void)
        does not actually rotate pixel data in LVGL 9 (it only swaps the
        reported resolution). Widget layout coordinates below are unaffected. */
 
-    /* LVGL needs a periodic tick source. */
-    const esp_timer_create_args_t tick_timer_args = {
-        .callback = lvgl_tick_cb,
-        .arg = (void *)5,
-        .name = "lvgl_tick",
-    };
-    esp_timer_handle_t tick_timer = NULL;
-    if (esp_timer_create(&tick_timer_args, &tick_timer) == ESP_OK) {
-        esp_timer_start_periodic(tick_timer, 5 * 1000);
-    }
+    lv_tick_set_cb(lvgl_tick_ms);
 
     const lv_image_dsc_t *droplet = make_icon(icon_droplet, ICON_DROPLET_WIDTH, ICON_DROPLET_HEIGHT);
 
@@ -381,8 +375,8 @@ bool display_ui_create_layout(void)
     create_trend_layout(s_layout_root[DISPLAY_UI_LAYOUT_TREND], droplet);
     s_layout_root[DISPLAY_UI_LAYOUT_FOCUS] = make_layout_root();
     create_focus_layout(s_layout_root[DISPLAY_UI_LAYOUT_FOCUS], droplet);
-    s_layout_root[DISPLAY_UI_LAYOUT_CLOCK] = make_layout_root();
-    create_clock_layout(s_layout_root[DISPLAY_UI_LAYOUT_CLOCK]);
+    s_layout_root[DISPLAY_UI_LAYOUT_DUAL] = make_layout_root();
+    create_dual_layout(s_layout_root[DISPLAY_UI_LAYOUT_DUAL]);
     display_ui_set_layout(s_layout);
 
     return true;
@@ -507,30 +501,32 @@ static void place_focus_temp(void)
 
 static void update_status(const display_status_t *status)
 {
-    char buf[8] = CLOCK_PLACEHOLDER;
-    if (status->time_valid) {
+    char buf[8] = TIME_PLACEHOLDER;
+    if (status->reading_time_valid) {
         struct tm tm;
-        localtime_r(&status->now, &tm);
+        localtime_r(&status->reading_time, &tm);
         strftime(buf, sizeof(buf), "%H:%M", &tm);
     }
-    lv_label_set_text(s_t_clock, buf);
-    lv_label_set_text(s_f_clock, buf);
-    lv_label_set_text(s_c_time, buf);
+    lv_label_set_text(s_t_time, buf);
+    lv_label_set_text(s_f_time, buf);
+    lv_label_set_text(s_d_time, buf);
+    lv_label_set_text(s_t_axis_end,
+                      status->reading_time_valid && status->reading_in_last_slot ? buf : "jetzt");
     lv_obj_set_hidden(s_t_ble, !status->ble_active);
     lv_obj_set_hidden(s_f_ble, !status->ble_active);
-    lv_obj_set_hidden(s_c_ble, !status->ble_active);
+    lv_obj_set_hidden(s_d_ble, !status->ble_active);
 
     char temp[16] = "--.-°";
     if (status->indoor_valid) {
         fmt_deci(temp, sizeof(temp), to_deci(status->indoor_temp_c), "°");
     }
-    lv_label_set_text(s_c_in_temp, temp);
+    lv_label_set_text(s_d_in_temp, temp);
     if (status->device_battery_pct >= 0) {
-        lv_label_set_text_fmt(s_c_in_batt, "%d%%", status->device_battery_pct);
+        lv_label_set_text_fmt(s_d_in_batt, "%d%%", status->device_battery_pct);
     } else {
-        lv_label_set_text(s_c_in_batt, "--%");
+        lv_label_set_text(s_d_in_batt, "--%");
     }
-    set_battery(&s_c_in_batt_icon, status->device_battery_pct);
+    set_battery(&s_d_in_batt_icon, status->device_battery_pct);
 }
 
 bool display_ui_render(const reading_t *reading, const int16_t history[HISTORY_SLOTS],
@@ -546,7 +542,7 @@ bool display_ui_render(const reading_t *reading, const int16_t history[HISTORY_S
         int32_t t = to_deci(reading->temp_c);
         fmt_deci(buf, sizeof(buf), t, "°");
         lv_label_set_text(s_t_temp, buf);
-        lv_label_set_text(s_c_out_temp, buf);
+        lv_label_set_text(s_d_out_temp, buf);
         fmt_deci(buf, sizeof(buf), t, "");
         lv_label_set_text(s_f_temp, buf);
 
@@ -562,10 +558,10 @@ bool display_ui_render(const reading_t *reading, const int16_t history[HISTORY_S
     }
     lv_label_set_text(s_t_batt, buf);
     lv_label_set_text(s_f_batt, buf);
-    lv_label_set_text(s_c_out_batt, buf);
+    lv_label_set_text(s_d_out_batt, buf);
     set_battery(&s_t_batt_icon, reading->battery);
     set_battery(&s_f_batt_icon, reading->battery);
-    set_battery(&s_c_out_batt_icon, reading->battery);
+    set_battery(&s_d_out_batt_icon, reading->battery);
 
     int bars = reading->seq > 0 ? rssi_bars(reading->rssi) : 0;
     for (int i = 0; i < 4; i++) {
@@ -580,8 +576,12 @@ bool display_ui_render(const reading_t *reading, const int16_t history[HISTORY_S
     /* Label sizes and chart geometry are needed for the manual placement. */
     lv_obj_update_layout(lv_screen_active());
     place_focus_temp();
-    lv_obj_align_to(s_t_ble, s_t_clock, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
-    lv_obj_align_to(s_f_ble, s_f_clock, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    lv_obj_align_to(s_t_ble, s_t_time, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+    /* Bottom of the time on the temperature's baseline. */
+    const lv_font_t *f48 = &lv_font_montserrat_48;
+    const lv_font_t *f14 = &lv_font_montserrat_14;
+    lv_obj_align_to(s_d_time, s_d_out_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 6,
+                    f14->base_line - f48->base_line);
     if (history[HISTORY_SLOTS - 1] != HISTORY_NONE) {
         lv_point_t p;
         lv_chart_get_point_pos_by_id(s_t_chart, s_t_series, HISTORY_SLOTS - 1, &p);

@@ -10,8 +10,9 @@ extern "C" {
 
 /* Things shown besides the sensor values. */
 typedef struct {
-    time_t now;          /* wall-clock time for the HH:MM label */
-    bool time_valid;     /* false: show "--:--" */
+    time_t reading_time; /* when the last sensor reading arrived */
+    bool reading_time_valid;  /* false: show "--:--" */
+    bool reading_in_last_slot; /* the reading is in the newest history slot */
     bool ble_active;     /* clock service is advertised: show the BLE symbol */
     bool indoor_valid;   /* on-board SHTC3 measured successfully */
     float indoor_temp_c;
@@ -21,7 +22,7 @@ typedef struct {
 typedef enum {
     DISPLAY_UI_LAYOUT_TREND = 0,   /* temperature, min/max and 24 h curve */
     DISPLAY_UI_LAYOUT_FOCUS,       /* one big temperature */
-    DISPLAY_UI_LAYOUT_CLOCK,       /* big time, outdoor and indoor rows */
+    DISPLAY_UI_LAYOUT_DUAL,        /* outdoor and indoor rows with batteries */
     DISPLAY_UI_LAYOUT_COUNT
 } display_ui_layout_t;
 

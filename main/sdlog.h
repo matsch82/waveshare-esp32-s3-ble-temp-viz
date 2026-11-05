@@ -16,7 +16,15 @@ extern "C" {
  */
 
 #define SDLOG_MOUNT_POINT "/sdcard"
-#define SDLOG_HEADER "local_time,utc_epoch,temperature_c,humidity_pct,sensor_battery_pct,rssi_dbm"
+#define SDLOG_HEADER "local_time,utc_epoch,temperature_c,humidity_pct,sensor_battery_pct,rssi_dbm," \
+                     "indoor_temp_c,board_battery_mv"
+
+/* Values measured on the board itself. */
+typedef struct {
+    bool indoor_valid;
+    float indoor_temp_c;
+    int battery_mv;     /* -1 = unknown */
+} sdlog_board_t;
 
 /**
  * Path of the month file for `now` in local time, e.g. "/sdcard/2026-11.csv".
@@ -25,12 +33,13 @@ extern "C" {
 bool sdlog_month_path(char *buf, size_t len, time_t now);
 
 /**
- * One CSV row (no newline) for reading `r` taken at `now`, e.g.
- * "2026-11-05 14:00:12,1793883612,12.26,63.7,62,-86".
- * Unknown battery (-1) is written as an empty field.
+ * One CSV row (no newline) for reading `r` and the board values taken at
+ * `now`, e.g. "2026-11-05 14:00:12,1793883612,12.26,63.7,62,-86,21.46,3987".
+ * Unknown values (battery -1, invalid indoor reading) are empty fields.
  * @return number of characters written, or -1 if `len` is too small
  */
-int sdlog_format_row(char *buf, size_t len, const reading_t *r, time_t now);
+int sdlog_format_row(char *buf, size_t len, const reading_t *r,
+                     const sdlog_board_t *board, time_t now);
 
 /**
  * Mount the card, append one row (plus the header if the file is new),
@@ -38,7 +47,7 @@ int sdlog_format_row(char *buf, size_t len, const reading_t *r, time_t now);
  * quickly without one.
  * @return true if the row was written
  */
-bool sdlog_append(const reading_t *r, time_t now);
+bool sdlog_append(const reading_t *r, const sdlog_board_t *board, time_t now);
 
 #ifdef __cplusplus
 }

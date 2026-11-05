@@ -28,20 +28,23 @@ menu "E-paper display application"
 
     config APP_WAKE_INTERVAL_SEC
         int "Deep-sleep wake interval (seconds)"
-        default 60
+        default 300
         range 10 3600
         help
             The device wakes this often, waits for one sensor advertisement,
-            updates the display and sleeps again. With a valid clock and an
-            interval of 60 s the wakes are aligned to the start of a minute.
+            updates the display and sleeps again. With a valid clock the
+            wakes are aligned to multiples of the interval (e.g. :00, :05,
+            :10 ... for 300 s), a few seconds after the boundary.
 
     config APP_WAKE_SCAN_TIMEOUT_MS
         int "Maximum BLE scan time per wake (ms)"
-        default 8000
+        default 3000
         range 1000 30000
         help
             If the sensor is not heard within this time the last values are
-            shown again.
+            shown again. The sensor's address is remembered, so a reading
+            usually arrives within about a second; a long timeout mostly
+            costs battery while the sensor is out of range.
 
     config APP_SD_LOG_INTERVAL_SEC
         int "SD card log interval (seconds)"

@@ -37,14 +37,25 @@ CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
 # FreeRTOS -------------------------------------------------------------------
 CONFIG_FREERTOS_HZ=1000
 
-# LVGL fonts used by the UI (the 60/72 px digits are in main/assets) --------
+# LVGL fonts used by the UI (the 72 px digits are in main/assets) -----------
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
-CONFIG_LV_FONT_MONTSERRAT_32=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# Power management ----------------------------------------------------------
+# 80 MHz is plenty for BLE scanning and LVGL; idle time (e.g. waiting for the
+# panel's BUSY line) is spent in automatic light sleep. BLE blocks light sleep
+# while it runs, and so does a connected USB host, which keeps the serial
+# console usable.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_80=y
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+# Light sleep isolates all GPIOs (forced by the ESD reset workaround);
+# board_init() exempts the battery latch and the panel pins.
 
 # Deep sleep: shorter awake time per wake -----------------------------------
 # Skip the app image hash check when waking from deep sleep.

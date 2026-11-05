@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include "board.h"
 #include "driver/sdmmc_host.h"
@@ -58,6 +59,17 @@ static esp_err_t mount_quietly(sdmmc_card_t **card)
 }
 
 /* Header if the file is new, then the row, pushed through to the card. */
+/* True if `path` does not exist yet, is empty, or starts with SDLOG_HEADER. */
+static bool header_matches(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return true;
+    char first[sizeof(SDLOG_HEADER) + 1] = "";
+    bool empty = fgets(first, sizeof first, f) == NULL;
+    fclose(f);
+    return empty || strncmp(first, SDLOG_HEADER, sizeof(SDLOG_HEADER) - 1) == 0;
+}
+
 static bool write_row(FILE *f, const char *row)
 {
     if (fseek(f, 0, SEEK_END) != 0) return false;
@@ -69,11 +81,11 @@ static bool write_row(FILE *f, const char *row)
     return fsync(fileno(f)) == 0;
 }
 
-bool sdlog_append(const reading_t *r, time_t now)
+bool sdlog_append(const reading_t *r, const sdlog_board_t *board, time_t now)
 {
     char path[32];
     char row[128];
-    if (!sdlog_month_path(path, sizeof path, now) || sdlog_format_row(row, sizeof row, r, now) < 0) {
+    if (!sdlog_month_path(path, sizeof path, now) || sdlog_format_row(row, sizeof row, r, board, now) < 0) {
         ESP_LOGW(TAG, "cannot format row for time %lld", (long long)now);
         return false;
     }
@@ -87,6 +99,14 @@ bool sdlog_append(const reading_t *r, time_t now)
                          : "SD mount failed";
         ESP_LOGW(TAG, "%s (%s), row not logged", what, esp_err_to_name(err));
         return false;
+    }
+
+    /* A file written by an older firmware has fewer columns: continue in a
+       second month file (8.3 name) instead of mixing formats. */
+    if (!header_matches(path)) {
+        size_t n = strlen(path);
+        memmove(&path[n - 3], &path[n - 4], 5);   /* ".csv\0" one to the right */
+        path[n - 4] = 'b';
     }
 
     FILE *f = fopen(path, "a");

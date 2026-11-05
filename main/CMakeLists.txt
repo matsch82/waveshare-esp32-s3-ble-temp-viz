@@ -16,7 +16,6 @@ idf_component_register(
         "sdlog.c"
         "sdlog_format.c"
         "assets/font_digits_72.c"
-        "assets/font_digits_60.c"
     INCLUDE_DIRS
         "."
         "assets"

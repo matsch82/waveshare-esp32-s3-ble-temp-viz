@@ -14,6 +14,7 @@
 #include "nvs.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_rtc_time.h"
 #include "esp_timer.h"
 #include "esp_sleep.h"
@@ -37,17 +38,22 @@
 #define SETUP_PRESS_MS         5000
 
 /* In the setup window a new reading alone redraws at most this often;
-   a new minute, a button press or a clock write redraws at once. */
+   a button press or a clock write redraws at once, and the indoor sensor is
+   read once a minute. */
 #define SETUP_MIN_REDRAW_SEC   15
 
 /* The web page may still be connected when the window ends; wait this much
    longer for it to finish. */
 #define SETUP_GRACE_SEC        120
 
-/* Wake this long after the minute starts. The RTC only has whole seconds
-   (system time lags up to 1 s after a sync) and the ESP32's RC sleep timer
-   drifts; neither may make the display show the previous minute. */
+/* Wake this long after an interval boundary (e.g. :05:03), so that RC drift
+   of the sleep timer never lands a wake just before the hour, which would
+   push the hourly SD row into the next cycle. */
 #define WAKE_OFFSET_MS         3000
+
+/* How early the RC sleep timer may plausibly wake (a few percent of the
+   interval). */
+#define EARLY_WAKE_MARGIN_MS   15000
 
 /* Longest wait for BOOT to be released before sleeping. A button that is
    still held after this (stuck, or pressed by a case) must not keep the
@@ -57,7 +63,7 @@
 /* Readings older than this are not written to the SD card. */
 #define SD_MAX_READING_AGE_SEC 600
 
-#define STATE_MAGIC            0x45504432  /* "EPD2" */
+#define STATE_MAGIC            0x45504433  /* "EPD3" */
 
 /* Kept in RTC memory across deep sleep. Every other reset (power-on,
    flashing, panic) reloads the initializer, which fails the magic check. */
@@ -71,14 +77,13 @@ typedef struct {
     bool indoor_valid;        /* on-board SHTC3 */
     float indoor_temp_c;
     int device_battery_pct;   /* -1 = unknown */
+    int device_battery_mv;    /* -1 = unknown */
 } rtc_state_t;
 
 RTC_DATA_ATTR static rtc_state_t s_state;
 RTC_DATA_ATTR static uint8_t s_prev_fb[EPD_BUF_SIZE];
 static int16_t s_history[HISTORY_SLOTS];
 
-/* Wall-clock time of the last frame drawn; the next wake is planned from it. */
-static time_t s_shown_now;
 
 /* Seconds since power-on; keeps counting through deep sleep and is not
    affected by setting the clock. */
@@ -120,6 +125,7 @@ static void reset_state(void)
     s_state.reading_mono = -1;
     s_state.log_slot = -1;
     s_state.device_battery_pct = -1;
+    s_state.device_battery_mv = -1;
     memset(s_prev_fb, 0xFF, sizeof(s_prev_fb));
     history_reset();
 }
@@ -138,6 +144,7 @@ static void measure_board(bool battery)
     }
     if (battery) {
         int mv = battery_read_mv();
+        s_state.device_battery_mv = mv > 0 ? mv : -1;
         s_state.device_battery_pct = mv > 0 ? battery_percent_from_mv(mv) : -1;
         ESP_LOGI(TAG, "battery %d mV (%d %%)", mv, s_state.device_battery_pct);
     }
@@ -189,16 +196,30 @@ static void apply_clock_request(const ble_clock_request_t *req)
 static void show(bool force_full, bool ble_active)
 {
     bool full = force_full || (s_state.cycle % CONFIG_APP_FULL_REFRESH_EVERY == 0);
+    int64_t now_mono = mono_sec();
+    /* The scanner stamps each reading with the wall clock. A reading that
+       arrived before the clock was set gets its time from its age instead
+       (that age is measured on the drifting RC clock, so it is second best). */
+    bool reading_time_valid = sysclock_is_valid() && s_state.reading_mono >= 0;
+    time_t reading_time = 0;
+    if (reading_time_valid) {
+        reading_time = s_state.reading.timestamp >= SYSCLOCK_MIN_VALID_UTC
+            ? s_state.reading.timestamp
+            : time(NULL) - (time_t)(now_mono - s_state.reading_mono);
+    }
     display_status_t status = {
-        .now = time(NULL),
-        .time_valid = sysclock_is_valid(),
+        .reading_time = reading_time,
+        .reading_time_valid = reading_time_valid,
+        /* The curve's right edge is "now"; it only ends at the reading while
+           the reading is in the newest history slot. */
+        .reading_in_last_slot = s_state.reading_mono >= 0 &&
+            s_state.reading_mono / HISTORY_SLOT_SEC == now_mono / HISTORY_SLOT_SEC,
         .ble_active = ble_active,
         .indoor_valid = s_state.indoor_valid,
         .indoor_temp_c = s_state.indoor_temp_c,
         .device_battery_pct = s_state.device_battery_pct,
     };
-    s_shown_now = status.now;
-    history_get(s_history, mono_sec());
+    history_get(s_history, now_mono);
     if (display_ui_render(&s_state.reading, s_history, s_prev_fb, !full, &status)) {
         memcpy(s_prev_fb, display_ui_get_fb(), EPD_BUF_SIZE);
         s_state.cycle++;
@@ -215,7 +236,12 @@ static void maybe_log_sd(void)
     if (slot == s_state.log_slot) return;
     if (mono_sec() - s_state.reading_mono > SD_MAX_READING_AGE_SEC) return;
     s_state.log_slot = slot;
-    sdlog_append(&s_state.reading, now);
+    const sdlog_board_t board = {
+        .indoor_valid = s_state.indoor_valid,
+        .indoor_temp_c = s_state.indoor_temp_c,
+        .battery_mv = s_state.device_battery_mv,
+    };
+    sdlog_append(&s_state.reading, &board, now);
 }
 
 /* Awake with the BLE clock service: after power-up, or after holding BOOT
@@ -324,10 +350,10 @@ static void handle_boot_press(uint32_t already_ms)
     show(true, false);
 }
 
-static void run_wake_cycle(void)
+static void run_wake_cycle(bool button_wake)
 {
     measure_board(true);
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1) {
+    if (button_wake) {
         /* The press started before the boot; esp_log_timestamp() counts
            from the wake reset. A quick tap is already over by now. */
         handle_boot_press(button_is_pressed() ? esp_log_timestamp() : 0);
@@ -356,8 +382,8 @@ static void run_wake_cycle(void)
     }
 }
 
-/* With a valid clock, wake just after the next interval boundary (the next
-   minute for 60 s), so HH:MM is right; otherwise keep a steady interval. */
+/* With a valid clock, wake just after the next interval boundary (:00, :05,
+   ... for 300 s); otherwise keep a steady interval. */
 static uint64_t next_sleep_us(void)
 {
     const int64_t interval_us = (int64_t)CONFIG_APP_WAKE_INTERVAL_SEC * 1000000;
@@ -366,12 +392,16 @@ static uint64_t next_sleep_us(void)
         struct timeval tv;
         gettimeofday(&tv, NULL);
         int64_t now_us = (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;
-        /* Plan from the minute on the glass: if a refresh ran past the
-           boundary, wake at once to draw the new minute. */
-        int64_t shown_us = (int64_t)s_shown_now * 1000000;
-        int64_t next_us = (shown_us / interval_us + 1) * interval_us + WAKE_OFFSET_MS * 1000;
-        if (next_us < now_us + 100000) {
-            next_us = now_us + 100000;
+        int64_t next_us = (now_us / interval_us + 1) * interval_us + WAKE_OFFSET_MS * 1000;
+        /* The RC sleep timer drifts by a few seconds per interval: after a
+           wake that came early, do not wake again a few seconds later. A
+           button wake mid-interval still keeps the next aligned wake. */
+        int64_t guard_us = (WAKE_OFFSET_MS + EARLY_WAKE_MARGIN_MS) * 1000LL;
+        if (guard_us > interval_us / 2) {
+            guard_us = interval_us / 2;
+        }
+        if (next_us - now_us < guard_us) {
+            next_us += interval_us;
         }
         return (uint64_t)(next_us - now_us);
     }
@@ -425,10 +455,26 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     bool woke = esp_reset_reason() == ESP_RST_DEEPSLEEP && s_state.magic == STATE_MAGIC;
+    /* Read before esp_pm_configure(): every automatic light sleep overwrites
+       the wake-cause register. */
+    bool button_wake = woke && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1;
 
     if (!board_init()) {
         ESP_LOGE(TAG, "board init failed");
         return;
+    }
+
+    /* Idle time (mostly the panel's BUSY wait) in automatic light sleep. BLE
+       and a connected USB host block it while they are active. Only after
+       board_init(): it keeps the latch and panel pins driven in light sleep. */
+    const esp_pm_config_t pm = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = 40,     /* XTAL */
+        .light_sleep_enable = true,
+    };
+    esp_err_t pm_err = esp_pm_configure(&pm);
+    if (pm_err != ESP_OK) {
+        ESP_LOGW(TAG, "power management not enabled: %s", esp_err_to_name(pm_err));
     }
     sysclock_init();
     shtc3_init(sysclock_i2c_bus());
@@ -441,7 +487,7 @@ void app_main(void)
     display_ui_set_layout(load_u8(NVS_KEY_LAYOUT, DISPLAY_UI_LAYOUT_TREND));
 
     if (woke) {
-        run_wake_cycle();
+        run_wake_cycle(button_wake);
     } else {
         ESP_LOGI(TAG, "power-up (reset reason %d)", esp_reset_reason());
         reset_state();
